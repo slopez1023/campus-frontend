@@ -674,7 +674,7 @@ body {
 
 /* Sedes Grid Container - sin padding top */
 .sedes-grid-container {
-  background: #f1f5f9;
+  background: #efefef;
   min-height: calc(100vh - 180px);
   padding: 2rem;
   padding-top: 2rem;
@@ -966,7 +966,7 @@ body {
 .sedes-grid-empty {
   text-align: center;
   padding: 4rem 2rem;
-  color: white;
+  color: rgb(51, 100, 157);
 }
 
 .sedes-grid-empty-icon {

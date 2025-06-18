@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+// src/components/CreateCampusModal.jsx
+import React, { useState, useEffect } from 'react';
+import { useCampusValidation } from '../hooks/useCampusValidation';
+import { errorMessages } from '../utils/errorMessages';
 
-const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => {
+const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false, campusList = [] }) => {
   const [formData, setFormData] = useState({
     name: '',
     address: '',
@@ -9,10 +12,21 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
     active: true
   });
   
-  const [errors, setErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  
+  // Hook de validación personalizado
+  const { 
+    errors, 
+    validateForm, 
+    validateSingleField, 
+    clearFieldError, 
+    clearAllErrors,
+    hasErrors 
+  } = useCampusValidation(campusList);
 
   // Reset form when modal opens/closes
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen) {
       setFormData({
         name: '',
@@ -21,52 +35,30 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
         telephone: '',
         active: true
       });
-      setErrors({});
+      clearAllErrors();
+      setSubmitAttempted(false);
+      setIsSubmitting(false);
     }
-  }, [isOpen]);
+  }, [isOpen, clearAllErrors]);
 
-  // Validaciones
-  const validateForm = () => {
-    const newErrors = {};
-
-    if (!formData.name.trim()) {
-      newErrors.name = 'El nombre de la sede es requerido';
-    } else if (formData.name.trim().length < 3) {
-      newErrors.name = 'El nombre debe tener al menos 3 caracteres';
-    }
-
-    if (!formData.address.trim()) {
-      newErrors.address = 'La dirección es requerida';
-    } else if (formData.address.trim().length < 10) {
-      newErrors.address = 'La dirección debe ser más específica';
-    }
-
-    if (!formData.city.trim()) {
-      newErrors.city = 'La ciudad es requerida';
-    }
-
-    if (formData.telephone && !/^\d{10}$/.test(formData.telephone.replace(/\D/g, ''))) {
-      newErrors.telephone = 'El teléfono debe tener 10 dígitos';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // Manejar cambios en inputs
+  // Manejar cambios en inputs con validación en tiempo real
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+    const newValue = type === 'checkbox' ? checked : value;
+    
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: newValue
     }));
 
-    // Limpiar error del campo al escribir
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
+    // Validar campo individual solo después del primer intento de envío
+    if (submitAttempted && name !== 'active') {
+      setTimeout(() => {
+        validateSingleField(name, newValue);
+      }, 300); // Debounce de 300ms
+    } else if (errors[name]) {
+      // Limpiar error si el usuario empieza a escribir
+      clearFieldError(name);
     }
   };
 
@@ -86,39 +78,61 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
       telephone: formattedValue
     }));
 
-    if (errors.telephone) {
-      setErrors(prev => ({
-        ...prev,
-        telephone: ''
-      }));
+    // Validar teléfono si ya se intentó enviar
+    if (submitAttempted) {
+      setTimeout(() => {
+        validateSingleField('telephone', formattedValue);
+      }, 300);
+    } else if (errors.telephone) {
+      clearFieldError('telephone');
     }
   };
 
-  // Enviar formulario
+  // Enviar formulario con validación completa
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitAttempted(true);
     
-    if (!validateForm()) {
+    // Validar formulario completo
+    const isValid = validateForm(formData);
+    
+    if (!isValid) {
+      console.log('Formulario inválido:', errors);
       return;
     }
 
+    setIsSubmitting(true);
+    
     try {
-      // Limpiar datos antes de enviar
+      // Limpiar y preparar datos antes de enviar
       const cleanData = {
         ...formData,
         name: formData.name.trim(),
         address: formData.address.trim(),
         city: formData.city.trim(),
-        telephone: formData.telephone.replace(/\D/g, '') // Solo números para API
+        telephone: formData.telephone.replace(/\D/g, '') || null // Solo números para API
       };
 
+      console.log('Enviando datos de sede:', cleanData);
       await onSubmit(cleanData);
+      
+      // Si llegamos aquí, la creación fue exitosa
+      handleClose();
     } catch (error) {
       console.error('Error en formulario:', error);
+      
+      // Manejar errores específicos del servidor
+      if (error.message && error.message.includes('duplicate') || error.message.includes('duplicado')) {
+        validateSingleField('name', formData.name); // Esto detectará el duplicado
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
+    if (isSubmitting) return; // No cerrar si está guardando
+    
     setFormData({
       name: '',
       address: '',
@@ -126,8 +140,16 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
       telephone: '',
       active: true
     });
-    setErrors({});
+    clearAllErrors();
+    setSubmitAttempted(false);
+    setIsSubmitting(false);
     onClose();
+  };
+
+  // Obtener clase CSS para input con error
+  const getInputClassName = (fieldName) => {
+    const baseClass = "create-modal-input";
+    return errors[fieldName] ? `${baseClass} create-modal-input-error` : baseClass;
   };
 
   if (!isOpen) return null;
@@ -158,8 +180,8 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
         transform: 'translate(-50%, -50%)',
         zIndex: 1001,
         width: '90%',
-        maxWidth: '600px',
-        maxHeight: '90vh',
+        maxWidth: '700px',
+        maxHeight: '95vh',
         overflowY: 'auto',
         animation: 'modalSlideIn 0.4s ease-out'
       }}>
@@ -205,7 +227,7 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
                 transition: 'all 0.2s ease'
               }}
               onClick={handleClose}
-              disabled={isLoading}
+              disabled={isSubmitting}
             >
               ✕
             </button>
@@ -221,11 +243,7 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
             }}>
               {/* Nombre */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{
-                  fontWeight: '600',
-                  color: '#374151',
-                  fontSize: '0.875rem'
-                }}>
+                <label className="create-modal-label">
                   Nombre de la Sede *
                 </label>
                 <input
@@ -233,28 +251,14 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
-                  style={{
-                    padding: '0.875rem 1rem',
-                    border: `2px solid ${errors.name ? '#ef4444' : '#e5e7eb'}`,
-                    borderRadius: '12px',
-                    fontSize: '0.875rem',
-                    transition: 'all 0.3s ease',
-                    background: errors.name ? '#fef2f2' : 'white',
-                    color: '#1f2937'
-                  }}
+                  className={getInputClassName('name')}
                   placeholder="Ej: Sede Principal Armenia"
-                  disabled={isLoading}
+                  disabled={isSubmitting}
                   autoFocus
+                  maxLength={100}
                 />
                 {errors.name && (
-                  <span style={{
-                    color: '#ef4444',
-                    fontSize: '0.75rem',
-                    fontWeight: '500',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem'
-                  }}>
+                  <span className="create-modal-error">
                     ⚠️ {errors.name}
                   </span>
                 )}
@@ -262,11 +266,7 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
 
               {/* Ciudad */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{
-                  fontWeight: '600',
-                  color: '#374151',
-                  fontSize: '0.875rem'
-                }}>
+                <label className="create-modal-label">
                   Ciudad *
                 </label>
                 <input
@@ -274,27 +274,13 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
                   name="city"
                   value={formData.city}
                   onChange={handleChange}
-                  style={{
-                    padding: '0.875rem 1rem',
-                    border: `2px solid ${errors.city ? '#ef4444' : '#e5e7eb'}`,
-                    borderRadius: '12px',
-                    fontSize: '0.875rem',
-                    transition: 'all 0.3s ease',
-                    background: errors.city ? '#fef2f2' : 'white',
-                    color: '#1f2937'
-                  }}
+                  className={getInputClassName('city')}
                   placeholder="Ej: Armenia"
-                  disabled={isLoading}
+                  disabled={isSubmitting}
+                  maxLength={50}
                 />
                 {errors.city && (
-                  <span style={{
-                    color: '#ef4444',
-                    fontSize: '0.75rem',
-                    fontWeight: '500',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem'
-                  }}>
+                  <span className="create-modal-error">
                     ⚠️ {errors.city}
                   </span>
                 )}
@@ -307,11 +293,7 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
                 gap: '0.5rem',
                 gridColumn: '1 / -1'
               }}>
-                <label style={{
-                  fontWeight: '600',
-                  color: '#374151',
-                  fontSize: '0.875rem'
-                }}>
+                <label className="create-modal-label">
                   Dirección Completa *
                 </label>
                 <input
@@ -319,27 +301,13 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
                   name="address"
                   value={formData.address}
                   onChange={handleChange}
-                  style={{
-                    padding: '0.875rem 1rem',
-                    border: `2px solid ${errors.address ? '#ef4444' : '#e5e7eb'}`,
-                    borderRadius: '12px',
-                    fontSize: '0.875rem',
-                    transition: 'all 0.3s ease',
-                    background: errors.address ? '#fef2f2' : 'white',
-                    color: '#1f2937'
-                  }}
+                  className={getInputClassName('address')}
                   placeholder="Ej: Cra. 13 N° 15 Norte- 46 Ed. Anova"
-                  disabled={isLoading}
+                  disabled={isSubmitting}
+                  maxLength={200}
                 />
                 {errors.address && (
-                  <span style={{
-                    color: '#ef4444',
-                    fontSize: '0.75rem',
-                    fontWeight: '500',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem'
-                  }}>
+                  <span className="create-modal-error">
                     ⚠️ {errors.address}
                   </span>
                 )}
@@ -347,11 +315,7 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
 
               {/* Teléfono */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{
-                  fontWeight: '600',
-                  color: '#374151',
-                  fontSize: '0.875rem'
-                }}>
+                <label className="create-modal-label">
                   Teléfono
                 </label>
                 <input
@@ -359,28 +323,13 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
                   name="telephone"
                   value={formData.telephone}
                   onChange={handlePhoneChange}
-                  style={{
-                    padding: '0.875rem 1rem',
-                    border: `2px solid ${errors.telephone ? '#ef4444' : '#e5e7eb'}`,
-                    borderRadius: '12px',
-                    fontSize: '0.875rem',
-                    transition: 'all 0.3s ease',
-                    background: errors.telephone ? '#fef2f2' : 'white',
-                    color: '#1f2937'
-                  }}
+                  className={getInputClassName('telephone')}
                   placeholder="310 804 9716"
                   maxLength={13}
-                  disabled={isLoading}
+                  disabled={isSubmitting}
                 />
                 {errors.telephone && (
-                  <span style={{
-                    color: '#ef4444',
-                    fontSize: '0.75rem',
-                    fontWeight: '500',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem'
-                  }}>
+                  <span className="create-modal-error">
                     ⚠️ {errors.telephone}
                   </span>
                 )}
@@ -388,11 +337,7 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
 
               {/* Estado */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{
-                  fontWeight: '600',
-                  color: '#374151',
-                  fontSize: '0.875rem'
-                }}>
+                <label className="create-modal-label">
                   Estado
                 </label>
                 <div style={{
@@ -400,37 +345,52 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
                   alignItems: 'center',
                   marginTop: '0.5rem'
                 }}>
-                  <label style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem',
-                    cursor: 'pointer',
-                    padding: '0.5rem',
-                    borderRadius: '8px'
-                  }}>
+                  <label className="create-modal-checkbox-label">
                     <input
                       type="checkbox"
                       name="active"
                       checked={formData.active}
                       onChange={handleChange}
-                      style={{
-                        width: '18px',
-                        height: '18px',
-                        cursor: 'pointer'
-                      }}
-                      disabled={isLoading}
+                      className="create-modal-checkbox"
+                      disabled={isSubmitting}
                     />
-                    <span style={{
-                      fontSize: '0.875rem',
-                      color: '#374151',
-                      fontWeight: '500'
-                    }}>
+                    <span className="create-modal-checkbox-text">
                       Sede Activa
                     </span>
                   </label>
                 </div>
               </div>
             </div>
+
+            {/* Resumen de errores si hay muchos */}
+            {hasErrors && submitAttempted && (
+              <div style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '8px',
+                padding: '1rem',
+                marginBottom: '2rem'
+              }}>
+                <div style={{
+                  color: '#dc2626',
+                  fontWeight: '600',
+                  fontSize: '0.875rem',
+                  marginBottom: '0.5rem'
+                }}>
+                  Por favor, corrija los siguientes errores:
+                </div>
+                <ul style={{
+                  margin: '0',
+                  paddingLeft: '1.5rem',
+                  color: '#b91c1c',
+                  fontSize: '0.875rem'
+                }}>
+                  {Object.values(errors).map((error, index) => (
+                    <li key={index}>{error}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Footer */}
             <div style={{
@@ -443,53 +403,19 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
               <button
                 type="button"
                 onClick={handleClose}
-                style={{
-                  background: 'white',
-                  color: '#374151',
-                  border: '2px solid #e5e7eb',
-                  padding: '0.875rem 1.5rem',
-                  borderRadius: '12px',
-                  fontWeight: '600',
-                  fontSize: '0.875rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  minWidth: '120px'
-                }}
-                disabled={isLoading}
+                className="create-modal-btn-secondary"
+                disabled={isSubmitting}
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                style={{
-                  background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                  color: 'white',
-                  border: 'none',
-                  padding: '0.875rem 1.5rem',
-                  borderRadius: '12px',
-                  fontWeight: '600',
-                  fontSize: '0.875rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  minWidth: '120px',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)'
-                }}
-                disabled={isLoading}
+                className="create-modal-btn-primary"
+                disabled={isSubmitting || (submitAttempted && hasErrors)}
               >
-                {isLoading ? (
+                {isSubmitting ? (
                   <>
-                    <div style={{
-                      width: '16px',
-                      height: '16px',
-                      border: '2px solid rgba(255, 255, 255, 0.3)',
-                      borderTop: '2px solid white',
-                      borderRadius: '50%',
-                      animation: 'spin 1s linear infinite'
-                    }}></div>
+                    <div className="create-modal-spinner"></div>
                     Creando...
                   </>
                 ) : (
@@ -500,6 +426,157 @@ const CreateCampusModal = ({ isOpen, onClose, onSubmit, isLoading = false }) => 
           </form>
         </div>
       </div>
+
+      {/* Estilos CSS embebidos */}
+      <style jsx>{`
+        @keyframes overlayFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        
+        @keyframes modalSlideIn {
+          from { 
+            opacity: 0;
+            transform: translate(-50%, -60%) scale(0.9);
+          }
+          to { 
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+          }
+        }
+
+        .create-modal-label {
+          font-weight: 600;
+          color: #374151;
+          font-size: 0.875rem;
+        }
+
+        .create-modal-input {
+          padding: 0.875rem 1rem;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          font-size: 0.875rem;
+          transition: all 0.3s ease;
+          background: white;
+          color: #1f2937;
+          font-family: inherit;
+        }
+
+        .create-modal-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+        }
+
+        .create-modal-input-error {
+          border-color: #ef4444;
+          background: #fef2f2;
+        }
+
+        .create-modal-input-error:focus {
+          border-color: #ef4444;
+          box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1);
+        }
+
+        .create-modal-error {
+          color: #ef4444;
+          font-size: 0.75rem;
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+          margin-top: 0.25rem;
+        }
+
+        .create-modal-checkbox-label {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          cursor: pointer;
+          padding: 0.5rem;
+          border-radius: 8px;
+        }
+
+        .create-modal-checkbox {
+          width: 18px;
+          height: 18px;
+          cursor: pointer;
+        }
+
+        .create-modal-checkbox-text {
+          font-size: 0.875rem;
+          color: #374151;
+          font-weight: 500;
+        }
+
+        .create-modal-btn-secondary {
+          background: white;
+          color: #374151;
+          border: 2px solid #e5e7eb;
+          padding: 0.875rem 1.5rem;
+          border-radius: 12px;
+          font-weight: 600;
+          font-size: 0.875rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          min-width: 120px;
+          font-family: inherit;
+        }
+
+        .create-modal-btn-secondary:hover:not(:disabled) {
+          background: #f9fafb;
+          border-color: #d1d5db;
+        }
+
+        .create-modal-btn-secondary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .create-modal-btn-primary {
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          color: white;
+          border: none;
+          padding: 0.875rem 1.5rem;
+          border-radius: 12px;
+          font-weight: 600;
+          font-size: 0.875rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          min-width: 120px;
+          justify-content: center;
+          box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+          font-family: inherit;
+        }
+
+        .create-modal-btn-primary:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+        }
+
+        .create-modal-btn-primary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .create-modal-spinner {
+          width: 16px;
+          height: 16px;
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          border-top: 2px solid white;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </>
   );
 };

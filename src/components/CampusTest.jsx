@@ -1,9 +1,11 @@
+// src/components/CampusTest.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import Toast from './Toast';
 import useToast from '../hooks/useToast';
 import CampusAssignment from './CampusAssignment';
 import CreateCampusModal from './CreateCampusModal';
 import SedeDetailView from './SedeDetailView';
+import { errorMessages } from '../utils/errorMessages';
 
 const CampusTest = () => {
   const [campuses, setCampuses] = useState([]);
@@ -25,18 +27,19 @@ const CampusTest = () => {
     try {
       const response = await fetch('http://localhost:8080/api/campuses');
       if (!response.ok) {
-        throw new Error('Error al conectar con el servidor');
+        throw new Error(errorMessages.campus.connectionError);
       }
       const data = await response.json();
       setCampuses(data);
       console.log('✅ Sedes cargadas:', data);
     } catch (err) {
       setError(err.message);
+      showError(err.message || errorMessages.campus.loadError, 5000);
       console.error('❌ Error:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showError]);
 
   useEffect(() => {
     loadCampuses();
@@ -87,27 +90,42 @@ const CampusTest = () => {
     setViewMode('detail');
   }, []);
 
-  const handleSave = useCallback(async (campusId, formData) => {
-  if (!formData.name?.trim() || !formData.address?.trim()) {
-    showError('El nombre y la dirección son requeridos', 3000);
-    return;
-  }
-
+  // Función handleSave corregida en CampusTest.jsx
+// Función handleSave simplificada en CampusTest.jsx
+const handleSave = useCallback(async (campusId, formData) => {
   try {
-    // Limpiar y preparar datos
+    // Validaciones adicionales del lado del cliente
+    if (!formData.name?.trim()) {
+      showError(errorMessages.campus.nameRequired, 4000);
+      throw new Error(errorMessages.campus.nameRequired);
+    }
+
+    if (!formData.address?.trim()) {
+      showError(errorMessages.campus.addressRequired, 4000);
+      throw new Error(errorMessages.campus.addressRequired);
+    }
+
+    // Verificar duplicados del lado del cliente
+    const isDuplicate = campuses.some(campus => 
+      campus.name.toLowerCase() === formData.name.trim().toLowerCase() && 
+      campus.id !== campusId
+    );
+
+    if (isDuplicate) {
+      showError(errorMessages.campus.nameDuplicate, 4000);
+      throw new Error(errorMessages.campus.nameDuplicate);
+    }
+
+    // Limpiar y preparar datos - Solo campos básicos
     const cleanFormData = {
-      ...formData,
       name: formData.name.trim(),
       address: formData.address.trim(),
-      city: formData.city.trim(),
-      telephone: formData.telephone || null,
-      capacity: formData.capacity ? parseInt(formData.capacity) : null,
-      email: formData.email || null,
-      inauguratedDate: formData.inauguratedDate || null,
+      city: formData.city?.trim() || '',
+      telephone: formData.telephone?.replace(/\D/g, '') || null,
       active: formData.active
     };
 
-    console.log('Enviando datos:', cleanFormData); // Para debug
+    console.log('Enviando datos de actualización:', cleanFormData);
 
     const response = await fetch(`http://localhost:8080/api/campuses/${campusId}`, {
       method: 'PUT',
@@ -118,21 +136,47 @@ const CampusTest = () => {
     });
 
     if (!response.ok) {
-      throw new Error('Error al actualizar la sede');
+      const errorData = await response.text();
+      
+      // Manejar errores específicos del servidor
+      if (response.status === 409 || errorData.includes('duplicate') || errorData.includes('duplicado')) {
+        throw new Error(errorMessages.campus.nameDuplicate);
+      }
+      
+      throw new Error(errorMessages.campus.updateError);
     }
 
     const updatedCampus = await response.json();
-    console.log('Sede actualizada:', updatedCampus); // Para debug
+    console.log('Sede actualizada exitosamente:', updatedCampus);
     
+    // Actualizar tanto selectedCampus como la lista de campuses
     setSelectedCampus(updatedCampus);
-    await loadCampuses();
-    showSuccess('¡Sede actualizada exitosamente!', 3000);
+    
+    // Actualizar la lista de campuses para reflejar los cambios
+    setCampuses(prev => 
+      prev.map(campus => 
+        campus.id === campusId ? updatedCampus : campus
+      )
+    );
+    
+    showSuccess(errorMessages.campus.updateSuccess, 3000);
+    
+    // Retornar los datos actualizados
+    return updatedCampus;
+    
   } catch (err) {
     console.error('Error en handleSave:', err);
-    showError('Error al actualizar la sede: ' + err.message, 4000);
+    
+    // Si el error ya fue mostrado arriba, no mostrar duplicado
+    if (!err.message.includes(errorMessages.campus.nameRequired) &&
+        !err.message.includes(errorMessages.campus.addressRequired) &&
+        !err.message.includes(errorMessages.campus.nameDuplicate)) {
+      showError(err.message || errorMessages.campus.updateError, 4000);
+    }
+    
     throw err;
   }
-}, [loadCampuses, showSuccess, showError]);
+}, [campuses, showSuccess, showError]);
 
   const handleToggleStatus = useCallback(async (campus) => {
     const action = campus.active ? 'inhabilitar' : 'habilitar';
@@ -163,8 +207,8 @@ const CampusTest = () => {
         }
         
         const successMessage = campus.active 
-          ? '¡Sede inhabilitada exitosamente!' 
-          : '¡Sede habilitada exitosamente!';
+          ? errorMessages.campus.disableSuccess
+          : errorMessages.campus.enableSuccess;
         
         showSuccess(successMessage, 3000);
       } catch (err) {
@@ -177,6 +221,26 @@ const CampusTest = () => {
     setCreateLoading(true);
     
     try {
+      // Validaciones del lado del cliente
+      if (!formData.name?.trim()) {
+        throw new Error(errorMessages.campus.nameRequired);
+      }
+
+      if (!formData.address?.trim()) {
+        throw new Error(errorMessages.campus.addressRequired);
+      }
+
+      // Verificar duplicados del lado del cliente
+      const isDuplicate = campuses.some(campus => 
+        campus.name.toLowerCase() === formData.name.trim().toLowerCase()
+      );
+
+      if (isDuplicate) {
+        throw new Error(errorMessages.campus.nameDuplicate);
+      }
+
+      console.log('Creando nueva sede:', formData);
+
       const response = await fetch('http://localhost:8080/api/campuses', {
         method: 'POST',
         headers: {
@@ -186,19 +250,30 @@ const CampusTest = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Error al crear la sede');
+        const errorData = await response.text();
+        
+        // Manejar errores específicos del servidor
+        if (response.status === 409 || errorData.includes('duplicate') || errorData.includes('duplicado')) {
+          throw new Error(errorMessages.campus.nameDuplicate);
+        }
+        
+        throw new Error(errorMessages.campus.createError);
       }
+
+      const newCampus = await response.json();
+      console.log('Nueva sede creada:', newCampus);
 
       await loadCampuses();
       setShowCreateModal(false);
-      showSuccess('¡Sede creada exitosamente!', 3000);
+      showSuccess(errorMessages.campus.createSuccess, 4000);
     } catch (err) {
-      showError('Error al crear la sede: ' + err.message, 4000);
-      throw err;
+      console.error('Error al crear sede:', err);
+      showError(err.message || errorMessages.campus.createError, 4000);
+      throw err; // Relanzar para que el modal maneje el error
     } finally {
       setCreateLoading(false);
     }
-  }, [loadCampuses, showSuccess, showError]);
+  }, [campuses, loadCampuses, showSuccess, showError]);
 
   const filteredCampuses = campuses.filter(campus => {
     const matchesSearch = campus.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -410,10 +485,32 @@ const CampusTest = () => {
           {!loading && !error && filteredCampuses.length === 0 && (
             <div className="sedes-grid-empty">
               <div className="sedes-grid-empty-icon">📭</div>
-              <div className="sedes-grid-empty-title">No hay sedes disponibles</div>
-              <div className="sedes-grid-empty-subtitle">
-                No se encontraron sedes que coincidan con tu búsqueda
+              <div className="sedes-grid-empty-title">
+                {searchTerm ? 'No se encontraron sedes' : 'No hay sedes disponibles'}
               </div>
+              <div className="sedes-grid-empty-subtitle">
+                {searchTerm 
+                  ? `No se encontraron sedes que coincidan con "${searchTerm}"`
+                  : 'Comience creando una nueva sede'
+                }
+              </div>
+              {searchTerm && (
+                <button
+                  style={{
+                    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                    color: 'white',
+                    border: 'none',
+                    padding: '0.75rem 1.5rem',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    marginTop: '1rem'
+                  }}
+                  onClick={() => setSearchTerm('')}
+                >
+                  Limpiar búsqueda
+                </button>
+              )}
             </div>
           )}
 
@@ -477,6 +574,7 @@ const CampusTest = () => {
             filteredCampuses={filteredCampuses}
             onCampusSelect={handleCampusSelect}
             UnifiedHeader={UnifiedHeader}
+            campusList={campuses} // Pasar lista completa para validaciones
           />
         )
       ) : (
@@ -488,6 +586,7 @@ const CampusTest = () => {
         onClose={() => setShowCreateModal(false)}
         onSubmit={handleCreateCampus}
         isLoading={createLoading}
+        campusList={campuses} // Pasar lista para validaciones
       />
       
       <div className="toast-container-wrapper">

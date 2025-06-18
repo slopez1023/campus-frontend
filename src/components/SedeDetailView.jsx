@@ -1,4 +1,7 @@
-import React, { useState, useCallback } from 'react';
+// src/components/SedeDetailView.jsx - VERSIÓN CORREGIDA SONARQUBE
+import React, { useState, useCallback, useEffect } from 'react';
+import PropTypes from 'prop-types';
+import { useCampusValidation } from '../hooks/useCampusValidation';
 
 const SedeDetailView = ({ 
   selectedCampus, 
@@ -9,10 +12,30 @@ const SedeDetailView = ({
   onSearchChange,
   filteredCampuses,
   onCampusSelect,
-  UnifiedHeader 
+  UnifiedHeader,
+  campusList
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Hook de validación personalizado
+  const { 
+    errors, 
+    validateForm, 
+    validateSingleField, 
+    clearFieldError, 
+    clearAllErrors,
+    hasErrors 
+  } = useCampusValidation(campusList);
+
+  // Verificar si la sede existe
+  useEffect(() => {
+    if (searchTerm && !selectedCampus && filteredCampuses.length === 0) {
+      console.log('Sede no encontrada para:', searchTerm);
+    }
+  }, [selectedCampus, filteredCampuses, searchTerm]);
 
   const handleEdit = useCallback(() => {
     if (!selectedCampus) return;
@@ -22,35 +45,67 @@ const SedeDetailView = ({
       address: selectedCampus.address || '',
       city: selectedCampus.city || '',
       telephone: selectedCampus.telephone || '',
-      capacity: selectedCampus.capacity || '',
-      email: selectedCampus.email || '',
-      inauguratedDate: selectedCampus.inauguratedDate || '',
       active: selectedCampus.active !== undefined ? selectedCampus.active : true
     });
     setIsEditing(true);
-  }, [selectedCampus]);
+    clearAllErrors();
+    setSubmitAttempted(false);
+  }, [selectedCampus, clearAllErrors]);
 
   const handleSave = useCallback(async () => {
+    setSubmitAttempted(true);
+    
+    // Validar formulario completo
+    const isValid = validateForm(editForm, selectedCampus?.id);
+    
+    if (!isValid) {
+      console.log('Formulario de edición inválido:', errors);
+      return;
+    }
+
+    setIsSaving(true);
+    
     try {
       await onSave(selectedCampus.id, editForm);
+      
       setIsEditing(false);
       setEditForm({});
+      clearAllErrors();
+      setSubmitAttempted(false);
     } catch (error) {
       console.error('Error al guardar:', error);
+      
+      // Manejar errores específicos del servidor
+      if (error.message?.includes('duplicate') || error.message?.includes('duplicado')) {
+        validateSingleField('name', editForm.name, selectedCampus?.id);
+      }
+    } finally {
+      setIsSaving(false);
     }
-  }, [selectedCampus, editForm, onSave]);
+  }, [selectedCampus, editForm, onSave, validateForm, errors, validateSingleField, clearAllErrors]);
 
   const handleCancel = useCallback(() => {
     setIsEditing(false);
     setEditForm({});
-  }, []);
+    clearAllErrors();
+    setSubmitAttempted(false);
+  }, [clearAllErrors]);
 
   const handleInputChange = useCallback((field, value) => {
     setEditForm(prev => ({
       ...prev,
       [field]: value
     }));
-  }, []);
+
+    // Validar campo individual solo después del primer intento de envío
+    if (submitAttempted && field !== 'active') {
+      setTimeout(() => {
+        validateSingleField(field, value, selectedCampus?.id);
+      }, 300);
+    } else if (errors[field]) {
+      clearFieldError(field);
+    }
+  }, [submitAttempted, validateSingleField, selectedCampus?.id, errors, clearFieldError]);
 
   const formatPhone = useCallback((value) => {
     const cleaned = value.replace(/\D/g, '');
@@ -67,6 +122,156 @@ const SedeDetailView = ({
     handleInputChange('telephone', formatted);
   }, [handleInputChange, formatPhone]);
 
+  // Obtener clase CSS para input con error
+  const getInputClassName = useCallback((fieldName) => {
+    const baseClass = "field-input";
+    return errors[fieldName] ? `${baseClass} field-input-error` : baseClass;
+  }, [errors]);
+
+  // Componente para campo de entrada
+  const InputField = ({ 
+    label, 
+    name, 
+    value, 
+    onChange, 
+    placeholder, 
+    type = "text", 
+    maxLength, 
+    disabled = false,
+    required = false 
+  }) => (
+    <div className="campus-field">
+      <label htmlFor={name} className="field-label">
+        {label} {required && '*'}
+      </label>
+      {isEditing ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <input
+            id={name}
+            type={type}
+            className={getInputClassName(name)}
+            value={value || ''}
+            onChange={onChange}
+            placeholder={placeholder}
+            maxLength={maxLength}
+            disabled={disabled}
+          />
+          {errors[name] && (
+            <span className="field-error" role="alert">
+              ⚠️ {errors[name]}
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className="field-value">{value || 'No especificado'}</div>
+      )}
+    </div>
+  );
+
+  // Componente para lista de sedes en sidebar
+  const CampusList = ({ campuses, selectedCampusId, onSelect }) => (
+    <div className="campus-list">
+      {campuses.map((campus) => (
+        <button
+          key={campus.id}
+          type="button"
+          className={`campus-item ${selectedCampusId === campus.id ? 'active' : ''}`}
+          onClick={() => onSelect(campus)}
+        >
+          <div className="campus-item-name">{campus.name}</div>
+          <div className="campus-item-code">{campus.city}</div>
+        </button>
+      ))}
+    </div>
+  );
+
+  // Vista de sede no encontrada
+  const NotFoundView = () => (
+    <div>
+      <UnifiedHeader />
+      <div className="main-layout">
+        <div className="content-area">
+          <div className="content-header">
+            <div className="content-title">
+              <button type="button" className="back-button" onClick={onBack}>
+                ←
+              </button>
+              Sede no encontrada
+            </div>
+          </div>
+
+          <div className="content-body" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
+            <div style={{ 
+              fontSize: '4rem', 
+              marginBottom: '1rem',
+              opacity: 0.6 
+            }}>
+              🔍
+            </div>
+            <h3 style={{ 
+              color: '#ef4444', 
+              marginBottom: '1rem',
+              fontSize: '1.5rem',
+              fontWeight: '600'
+            }}>
+              La sede que busca no existe
+            </h3>
+            <p style={{ 
+              color: '#6b7280', 
+              marginBottom: '2rem',
+              fontSize: '1rem'
+            }}>
+              No se encontró ninguna sede con el término &quot;{searchTerm}&quot;
+            </p>
+            <button
+              type="button"
+              onClick={onBack}
+              style={{
+                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                color: 'white',
+                border: 'none',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '8px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              Volver a la lista de sedes
+            </button>
+          </div>
+        </div>
+
+        <div className="sidebar">
+          <div className="sidebar-header">
+            <div className="sidebar-title">Buscar Sedes</div>
+            <label htmlFor="search-input" className="sr-only">Buscar sedes</label>
+            <input
+              id="search-input"
+              type="text"
+              placeholder="Buscar..."
+              className="search-input"
+              value={searchTerm}
+              onChange={(e) => onSearchChange(e.target.value)}
+            />
+          </div>
+          <div className="sidebar-body">
+            <CampusList 
+              campuses={campusList.slice(0, 10)} 
+              selectedCampusId={null}
+              onSelect={onCampusSelect}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Si no hay sede seleccionada y hay término de búsqueda pero no resultados
+  if (searchTerm && !selectedCampus && filteredCampuses.length === 0) {
+    return <NotFoundView />;
+  }
+
   if (!selectedCampus) {
     return null;
   }
@@ -79,7 +284,7 @@ const SedeDetailView = ({
         <div className="content-area">
           <div className="content-header">
             <div className="content-title">
-              <button className="back-button" onClick={onBack}>
+              <button type="button" className="back-button" onClick={onBack}>
                 ←
               </button>
               {isEditing ? 'Editar sede' : 'Visualizar sede'}
@@ -87,10 +292,11 @@ const SedeDetailView = ({
             <div className="action-buttons">
               {!isEditing ? (
                 <>
-                  <button className="btn-edit" onClick={handleEdit}>
+                  <button type="button" className="btn-edit" onClick={handleEdit}>
                     ✏️ Editar
                   </button>
                   <button 
+                    type="button"
                     className={selectedCampus.active ? "btn-delete" : "btn-enable"}
                     onClick={() => onToggleStatus(selectedCampus)}
                   >
@@ -99,10 +305,27 @@ const SedeDetailView = ({
                 </>
               ) : (
                 <>
-                  <button className="btn-primary" onClick={handleSave}>
-                    Guardar
+                  <button 
+                    type="button"
+                    className="btn-primary" 
+                    onClick={handleSave}
+                    disabled={isSaving || (submitAttempted && hasErrors)}
+                  >
+                    {isSaving ? (
+                      <>
+                        <div className="loading-spinner" style={{ width: '16px', height: '16px', marginRight: '0.5rem' }}></div>
+                        Guardando...
+                      </>
+                    ) : (
+                      'Guardar'
+                    )}
                   </button>
-                  <button className="btn-secondary" onClick={handleCancel}>
+                  <button 
+                    type="button"
+                    className="btn-secondary" 
+                    onClick={handleCancel}
+                    disabled={isSaving}
+                  >
                     Cancelar
                   </button>
                 </>
@@ -111,6 +334,40 @@ const SedeDetailView = ({
           </div>
 
           <div className="content-subtitle">{selectedCampus.name}</div>
+
+          {/* Mostrar resumen de errores si hay muchos y se está editando */}
+          {isEditing && hasErrors && submitAttempted && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '8px',
+              padding: '1rem',
+              margin: '1rem 2rem',
+              borderLeft: '4px solid #ef4444'
+            }}>
+              <div style={{
+                color: '#dc2626',
+                fontWeight: '600',
+                fontSize: '0.875rem',
+                marginBottom: '0.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                ⚠️ Por favor, corrija los siguientes errores:
+              </div>
+              <ul style={{
+                margin: '0',
+                paddingLeft: '1.5rem',
+                color: '#b91c1c',
+                fontSize: '0.875rem'
+              }}>
+                {Object.values(errors).map((error, index) => (
+                  <li key={index}>{error}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="content-body">
             <div className="campus-grid">
@@ -130,49 +387,50 @@ const SedeDetailView = ({
                 </div>
               </div>
 
-              {/* Nombre de la sede */}
-              <div className="campus-field">
-                <label className="field-label">Nombre de la Sede *</label>
-                {isEditing ? (
-                  <input
-                    type="text"
-                    className="field-input"
-                    value={editForm.name || ''}
-                    onChange={(e) => handleInputChange('name', e.target.value)}
-                    placeholder="Ej: Sede Principal Armenia"
-                  />
-                ) : (
-                  <div className="field-value">{selectedCampus.name}</div>
-                )}
-              </div>
+              {/* Campos editables usando el componente InputField */}
+              <InputField
+                label="Nombre de la Sede"
+                name="name"
+                value={editForm.name || selectedCampus.name}
+                onChange={(e) => handleInputChange('name', e.target.value)}
+                placeholder="Ej: Sede Principal Armenia"
+                maxLength={100}
+                disabled={isSaving}
+                required
+              />
 
-              {/* Ciudad */}
-              <div className="campus-field">
-                <label className="field-label">Ciudad *</label>
-                {isEditing ? (
-                  <input
-                    type="text"
-                    className="field-input"
-                    value={editForm.city || ''}
-                    onChange={(e) => handleInputChange('city', e.target.value)}
-                    placeholder="Ej: Armenia"
-                  />
-                ) : (
-                  <div className="field-value">{selectedCampus.city}</div>
-                )}
-              </div>
+              <InputField
+                label="Ciudad"
+                name="city"
+                value={editForm.city || selectedCampus.city}
+                onChange={(e) => handleInputChange('city', e.target.value)}
+                placeholder="Ej: Armenia"
+                maxLength={50}
+                disabled={isSaving}
+                required
+              />
 
               {/* Dirección completa */}
               <div className="campus-field" style={{ gridColumn: '1 / -1' }}>
-                <label className="field-label">Dirección Completa *</label>
+                <label htmlFor="address" className="field-label">Dirección Completa *</label>
                 {isEditing ? (
-                  <input
-                    type="text"
-                    className="field-input"
-                    value={editForm.address || ''}
-                    onChange={(e) => handleInputChange('address', e.target.value)}
-                    placeholder="Ej: Cra. 13 N° 15 Norte- 46 Ed. Anova"
-                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <input
+                      id="address"
+                      type="text"
+                      className={getInputClassName('address')}
+                      value={editForm.address || ''}
+                      onChange={(e) => handleInputChange('address', e.target.value)}
+                      placeholder="Ej: Cra. 13 N° 15 Norte- 46 Ed. Anova"
+                      maxLength={200}
+                      disabled={isSaving}
+                    />
+                    {errors.address && (
+                      <span className="field-error" role="alert">
+                        ⚠️ {errors.address}
+                      </span>
+                    )}
+                  </div>
                 ) : (
                   <div className="field-value">{selectedCampus.address}</div>
                 )}
@@ -180,82 +438,36 @@ const SedeDetailView = ({
 
               {/* Teléfono */}
               <div className="campus-field">
-                <label className="field-label">Teléfono de Contacto</label>
+                <label htmlFor="telephone" className="field-label">Teléfono de Contacto</label>
                 {isEditing ? (
-                  <input
-                    type="tel"
-                    className="field-input"
-                    value={editForm.telephone || ''}
-                    onChange={handlePhoneChange}
-                    placeholder="310 804 9716"
-                    maxLength={13}
-                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <input
+                      id="telephone"
+                      type="tel"
+                      className={getInputClassName('telephone')}
+                      value={editForm.telephone || ''}
+                      onChange={handlePhoneChange}
+                      placeholder="310 804 9716"
+                      maxLength={13}
+                      disabled={isSaving}
+                    />
+                    {errors.telephone && (
+                      <span className="field-error" role="alert">
+                        ⚠️ {errors.telephone}
+                      </span>
+                    )}
+                  </div>
                 ) : (
                   <div className="field-value">{selectedCampus.telephone || 'No especificado'}</div>
                 )}
               </div>
-
-{/* Capacidad */}
-<div className="campus-field">
-  <label className="field-label">Cantidad de aulas</label>
-  {isEditing ? (
-    <input
-      type="number"
-      className="field-input"
-      value={editForm.capacity || ''}
-      onChange={(e) => handleInputChange('capacity', e.target.value)}
-      placeholder="50"
-      min="1"
-    />
-  ) : (
-    <div className="field-value">{selectedCampus.capacity || 'No especificado'} aulas</div>
-  )}
-</div>
-
-
-{/* Email */}
-<div className="campus-field">
-  <label className="field-label">Email de Contacto</label>
-  {isEditing ? (
-    <input
-      type="email"
-      className="field-input"
-      value={editForm.email || ''}
-      onChange={(e) => handleInputChange('email', e.target.value)}
-      placeholder="sede@universidad.edu.co"
-    />
-  ) : (
-    <div className="field-value">{selectedCampus.email || 'No especificado'}</div>
-  )}
-</div>
-
-
-{/* Fecha de inauguración */}
-<div className="campus-field">
-  <label className="field-label">Fecha de Inauguración</label>
-  {isEditing ? (
-    <input
-      type="date"
-      className="field-input"
-      value={editForm.inauguratedDate || ''}
-      onChange={(e) => handleInputChange('inauguratedDate', e.target.value)}
-    />
-  ) : (
-    <div className="field-value">
-      {selectedCampus.inauguratedDate 
-        ? new Date(selectedCampus.inauguratedDate).toLocaleDateString('es-CO')
-        : 'No especificada'
-      }
-    </div>
-  )}
-</div>
 
               {/* Estado activo/inactivo solo en edición */}
               {isEditing && (
                 <div className="campus-field">
                   <label className="field-label">Estado de la Sede</label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem' }}>
-                    <label style={{
+                    <label htmlFor="active-checkbox" style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: '0.5rem',
@@ -264,10 +476,12 @@ const SedeDetailView = ({
                       borderRadius: '8px'
                     }}>
                       <input
+                        id="active-checkbox"
                         type="checkbox"
                         checked={editForm.active}
                         onChange={(e) => handleInputChange('active', e.target.checked)}
                         style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                        disabled={isSaving}
                       />
                       <span style={{ fontSize: '0.875rem', color: '#374151', fontWeight: '500' }}>
                         Sede Activa
@@ -277,38 +491,15 @@ const SedeDetailView = ({
                 </div>
               )}
             </div>
-
-            {/* Información adicional */}
-            <div className="schedule-section">
-              <div className="schedule-grid">
-                <div className="campus-field">
-                  <label className="field-label">Fecha de Registro</label>
-                  <div className="field-value">
-                    {selectedCampus.createdAt 
-                      ? new Date(selectedCampus.createdAt).toLocaleDateString('es-CO')
-                      : '15/01/2025'
-                    }
-                  </div>
-                </div>
-
-                <div className="campus-field">
-                  <label className="field-label">Última Actualización</label>
-                  <div className="schedule-list">
-                    {selectedCampus.updatedAt 
-                      ? new Date(selectedCampus.updatedAt).toLocaleString('es-CO')
-                      : 'Primera vez'
-                    }
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
         <div className="sidebar">
           <div className="sidebar-header">
             <div className="sidebar-title">Buscar Sedes</div>
+            <label htmlFor="sidebar-search" className="sr-only">Buscar sedes</label>
             <input
+              id="sidebar-search"
               type="text"
               placeholder="Buscar..."
               className="search-input"
@@ -317,23 +508,120 @@ const SedeDetailView = ({
             />
           </div>
           <div className="sidebar-body">
-            <div className="campus-list">
-              {filteredCampuses.map((campus) => (
-                <div
-                  key={campus.id}
-                  className={`campus-item ${selectedCampus?.id === campus.id ? 'active' : ''}`}
-                  onClick={() => onCampusSelect(campus)}
-                >
-                  <div className="campus-item-name">{campus.name}</div>
-                  <div className="campus-item-code">{campus.city}</div>
-                </div>
-              ))}
-            </div>
+            <CampusList 
+              campuses={filteredCampuses} 
+              selectedCampusId={selectedCampus?.id}
+              onSelect={onCampusSelect}
+            />
           </div>
         </div>
       </div>
+
+      {/* Estilos CSS embebidos */}
+      <style jsx>{`
+        .field-input-error {
+          border-color: #ef4444 !important;
+          background: #fef2f2 !important;
+        }
+
+        .field-input-error:focus {
+          border-color: #ef4444 !important;
+          box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
+        }
+
+        .field-error {
+          color: #ef4444;
+          font-size: 0.75rem;
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+          margin-top: 0.25rem;
+        }
+
+        .loading-spinner {
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          border-top: 2px solid #ffffff;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        .campus-item {
+          all: unset;
+          display: block;
+          width: 100%;
+          padding: 1rem 1.5rem;
+          border-bottom: 1px solid #f1f5f9;
+          cursor: pointer;
+          transition: background-color 0.2s;
+          text-align: left;
+        }
+
+        .campus-item:hover {
+          background-color: #f8fafc;
+        }
+
+        .campus-item.active {
+          background-color: #eff6ff;
+          border-left: 4px solid #3b82f6;
+          padding-left: calc(1.5rem - 4px);
+        }
+
+        .sr-only {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .btn-secondary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+      `}</style>
     </div>
   );
+};
+
+// PropTypes para validación de props
+SedeDetailView.propTypes = {
+  selectedCampus: PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+    name: PropTypes.string.isRequired,
+    address: PropTypes.string.isRequired,
+    city: PropTypes.string.isRequired,
+    telephone: PropTypes.string,
+    active: PropTypes.bool.isRequired
+  }),
+  onBack: PropTypes.func.isRequired,
+  onSave: PropTypes.func.isRequired,
+  onToggleStatus: PropTypes.func.isRequired,
+  searchTerm: PropTypes.string.isRequired,
+  onSearchChange: PropTypes.func.isRequired,
+  filteredCampuses: PropTypes.arrayOf(PropTypes.object).isRequired,
+  onCampusSelect: PropTypes.func.isRequired,
+  UnifiedHeader: PropTypes.elementType.isRequired,
+  campusList: PropTypes.arrayOf(PropTypes.object)
+};
+
+SedeDetailView.defaultProps = {
+  selectedCampus: null,
+  campusList: []
 };
 
 export default SedeDetailView;

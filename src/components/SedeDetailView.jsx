@@ -1,4 +1,4 @@
-// src/components/SedeDetailView.jsx - VERSIÓN CORREGIDA SONARQUBE
+// src/components/SedeDetailView.jsx - VERSIÓN MEJORADA CON BUSCADOR INTEGRADO
 import React, { useState, useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { useCampusValidation } from '../hooks/useCampusValidation';
@@ -19,6 +19,11 @@ const SedeDetailView = ({
   const [editForm, setEditForm] = useState({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Estados para el buscador mejorado
+  const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm || '');
+  const [searchPerformed, setSearchPerformed] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Hook de validación personalizado
   const { 
@@ -29,6 +34,11 @@ const SedeDetailView = ({
     clearAllErrors,
     hasErrors 
   } = useCampusValidation(campusList);
+
+  // Sincronizar searchTerm con localSearchTerm
+  useEffect(() => {
+    setLocalSearchTerm(searchTerm || '');
+  }, [searchTerm]);
 
   // Verificar si la sede existe
   useEffect(() => {
@@ -122,6 +132,38 @@ const SedeDetailView = ({
     handleInputChange('telephone', formatted);
   }, [handleInputChange, formatPhone]);
 
+  // NUEVA FUNCIONALIDAD: Manejar búsqueda con botón
+  const handleSearchSubmit = useCallback((e) => {
+    e.preventDefault();
+    setIsSearching(true);
+    setSearchPerformed(true);
+    
+    // Simular delay de búsqueda para mejor UX
+    setTimeout(() => {
+      onSearchChange(localSearchTerm.trim());
+      setIsSearching(false);
+    }, 300);
+  }, [localSearchTerm, onSearchChange]);
+
+  // Manejar cambio en el input de búsqueda
+  const handleSearchInputChange = useCallback((e) => {
+    const value = e.target.value;
+    setLocalSearchTerm(value);
+    
+    // Si el usuario borra todo el texto, limpiar búsqueda
+    if (!value.trim()) {
+      setSearchPerformed(false);
+      onSearchChange('');
+    }
+  }, [onSearchChange]);
+
+  // Limpiar búsqueda
+  const handleClearSearch = useCallback(() => {
+    setLocalSearchTerm('');
+    setSearchPerformed(false);
+    onSearchChange('');
+  }, [onSearchChange]);
+
   // Obtener clase CSS para input con error
   const getInputClassName = useCallback((fieldName) => {
     const baseClass = "field-input";
@@ -168,24 +210,40 @@ const SedeDetailView = ({
     </div>
   );
 
-  // Componente para lista de sedes en sidebar
+  // Componente mejorado para lista de sedes en sidebar
   const CampusList = ({ campuses, selectedCampusId, onSelect }) => (
     <div className="campus-list">
-      {campuses.map((campus) => (
-        <button
-          key={campus.id}
-          type="button"
-          className={`campus-item ${selectedCampusId === campus.id ? 'active' : ''}`}
-          onClick={() => onSelect(campus)}
-        >
-          <div className="campus-item-name">{campus.name}</div>
-          <div className="campus-item-code">{campus.city}</div>
-        </button>
-      ))}
+      {campuses.length === 0 && searchPerformed ? (
+        <div className="no-results-message">
+          <div className="no-results-icon">🔍</div>
+          <div className="no-results-text">
+            No se encontraron sedes para "{searchTerm}"
+          </div>
+          <button
+            type="button"
+            className="clear-search-btn"
+            onClick={handleClearSearch}
+          >
+            Limpiar búsqueda
+          </button>
+        </div>
+      ) : (
+        campuses.map((campus) => (
+          <button
+            key={campus.id}
+            type="button"
+            className={`campus-item ${selectedCampusId === campus.id ? 'active' : ''}`}
+            onClick={() => onSelect(campus)}
+          >
+            <div className="campus-item-name">{campus.name}</div>
+            <div className="campus-item-code">{campus.city}</div>
+          </button>
+        ))
+      )}
     </div>
   );
 
-  // Vista de sede no encontrada
+  // Vista de sede no encontrada mejorada
   const NotFoundView = () => (
     <div>
       <UnifiedHeader />
@@ -196,7 +254,7 @@ const SedeDetailView = ({
               <button type="button" className="back-button" onClick={onBack}>
                 ←
               </button>
-              Sede no encontrada
+              Resultado de búsqueda
             </div>
           </div>
 
@@ -214,46 +272,85 @@ const SedeDetailView = ({
               fontSize: '1.5rem',
               fontWeight: '600'
             }}>
-              La sede que busca no existe
+              No se encontraron resultados
             </h3>
             <p style={{ 
               color: '#6b7280', 
               marginBottom: '2rem',
               fontSize: '1rem'
             }}>
-              No se encontró ninguna sede con el término &quot;{searchTerm}&quot;
+              No se encontró ninguna sede que coincida con el término "{searchTerm}"
             </p>
-            <button
-              type="button"
-              onClick={onBack}
-              style={{
-                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                color: 'white',
-                border: 'none',
-                padding: '0.75rem 1.5rem',
-                borderRadius: '8px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              Volver a la lista de sedes
-            </button>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                style={{
+                  background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                🔄 Nueva búsqueda
+              </button>
+              <button
+                type="button"
+                onClick={onBack}
+                style={{
+                  background: 'white',
+                  color: '#374151',
+                  border: '2px solid #e5e7eb',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                ← Volver a sedes
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="sidebar">
           <div className="sidebar-header">
             <div className="sidebar-title">Buscar Sedes</div>
-            <label htmlFor="search-input" className="sr-only">Buscar sedes</label>
-            <input
-              id="search-input"
-              type="text"
-              placeholder="Buscar..."
-              className="search-input"
-              value={searchTerm}
-              onChange={(e) => onSearchChange(e.target.value)}
-            />
+            <form onSubmit={handleSearchSubmit} className="search-form">
+              <div className="search-input-container">
+                <input
+                  type="text"
+                  placeholder="Buscar sede por nombre..."
+                  className="search-input"
+                  value={localSearchTerm}
+                  onChange={handleSearchInputChange}
+                  disabled={isSearching}
+                />
+                <button 
+                  type="submit" 
+                  className="search-button"
+                  disabled={isSearching || !localSearchTerm.trim()}
+                  title="Buscar sede"
+                >
+                  {isSearching ? '⏳' : '🔍'}
+                </button>
+                {localSearchTerm && (
+                  <button 
+                    type="button" 
+                    className="clear-button"
+                    onClick={handleClearSearch}
+                    title="Limpiar búsqueda"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </form>
           </div>
           <div className="sidebar-body">
             <CampusList 
@@ -267,8 +364,8 @@ const SedeDetailView = ({
     </div>
   );
 
-  // Si no hay sede seleccionada y hay término de búsqueda pero no resultados
-  if (searchTerm && !selectedCampus && filteredCampuses.length === 0) {
+  // Si hay búsqueda realizada pero no hay resultados
+  if (searchPerformed && searchTerm && !selectedCampus && filteredCampuses.length === 0) {
     return <NotFoundView />;
   }
 
@@ -497,15 +594,37 @@ const SedeDetailView = ({
         <div className="sidebar">
           <div className="sidebar-header">
             <div className="sidebar-title">Buscar Sedes</div>
-            <label htmlFor="sidebar-search" className="sr-only">Buscar sedes</label>
-            <input
-              id="sidebar-search"
-              type="text"
-              placeholder="Buscar..."
-              className="search-input"
-              value={searchTerm}
-              onChange={(e) => onSearchChange(e.target.value)}
-            />
+            {/* BUSCADOR MEJORADO CON BOTÓN */}
+            <form onSubmit={handleSearchSubmit} className="search-form">
+              <div className="search-input-container">
+                <input
+                  type="text"
+                  placeholder="Buscar sede por nombre..."
+                  className="search-input"
+                  value={localSearchTerm}
+                  onChange={handleSearchInputChange}
+                  disabled={isSearching}
+                />
+                <button 
+                  type="submit" 
+                  className="search-button"
+                  disabled={isSearching || !localSearchTerm.trim()}
+                  title="Buscar sede"
+                >
+                  {isSearching ? '⏳' : '🔍'}
+                </button>
+                {localSearchTerm && (
+                  <button 
+                    type="button" 
+                    className="clear-button"
+                    onClick={handleClearSearch}
+                    title="Limpiar búsqueda"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </form>
           </div>
           <div className="sidebar-body">
             <CampusList 
@@ -517,7 +636,7 @@ const SedeDetailView = ({
         </div>
       </div>
 
-      {/* Estilos CSS embebidos */}
+      {/* ESTILOS CSS EMBEBIDOS MEJORADOS */}
       <style jsx>{`
         .field-input-error {
           border-color: #ef4444 !important;
@@ -567,6 +686,125 @@ const SedeDetailView = ({
           padding-left: calc(1.5rem - 4px);
         }
 
+        /* NUEVOS ESTILOS PARA EL BUSCADOR MEJORADO */
+        .search-form {
+          margin-top: 1rem;
+        }
+
+        .search-input-container {
+          position: relative;
+          display: flex;
+          align-items: center;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          overflow: hidden;
+          transition: all 0.3s ease;
+          background: white;
+        }
+
+        .search-input-container:focus-within {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+        }
+
+        .search-input {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          border: none;
+          outline: none;
+          font-size: 0.875rem;
+          background: transparent;
+          color: #1f2937;
+        }
+
+        .search-input:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .search-button {
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          border: none;
+          color: white;
+          padding: 0.75rem 1rem;
+          cursor: pointer;
+          font-size: 1rem;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 44px;
+          height: 100%;
+        }
+
+        .search-button:hover:not(:disabled) {
+          background: linear-gradient(135deg, #1d4ed8, #1e40af);
+          transform: scale(1.05);
+        }
+
+        .search-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .clear-button {
+          background: #f3f4f6;
+          border: none;
+          color: #6b7280;
+          padding: 0.5rem;
+          cursor: pointer;
+          font-size: 0.875rem;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 32px;
+          height: 32px;
+          border-radius: 6px;
+          margin-right: 0.25rem;
+        }
+
+        .clear-button:hover {
+          background: #e5e7eb;
+          color: #374151;
+        }
+
+        .no-results-message {
+          padding: 2rem 1rem;
+          text-align: center;
+          color: #6b7280;
+        }
+
+        .no-results-icon {
+          font-size: 2rem;
+          margin-bottom: 1rem;
+          opacity: 0.6;
+        }
+
+        .no-results-text {
+          font-size: 0.875rem;
+          margin-bottom: 1.5rem;
+          line-height: 1.4;
+        }
+
+        .clear-search-btn {
+          background: linear-gradient(135deg, #6366f1, #4f46e5);
+          color: white;
+          border: none;
+          padding: 0.5rem 1rem;
+          border-radius: 8px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .clear-search-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
         .sr-only {
           position: absolute;
           width: 1px;
@@ -592,6 +830,24 @@ const SedeDetailView = ({
         .btn-secondary:disabled {
           opacity: 0.6;
           cursor: not-allowed;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+          .search-input-container {
+            flex-direction: column;
+          }
+          
+          .search-button {
+            width: 100%;
+            margin-top: 0.5rem;
+          }
+          
+          .clear-button {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+          }
         }
       `}</style>
     </div>

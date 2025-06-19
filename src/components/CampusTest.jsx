@@ -1,15 +1,16 @@
-// src/components/CampusTest.jsx - CON PATRONES DE DISEÑO INTEGRADOS
+// src/components/CampusTest.jsx - VERSIÓN COMPLETA FINAL
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo } from 'react';
 import Toast from './Toast';
 import useToast from '../hooks/useToast';
+import useConfirmation from '../hooks/useConfirmation';
+import ConfirmationModal from './ConfimationModal';
 import CampusAssignment from './CampusAssignment';
 import CreateCampusModal from './CreateCampusModal';
 import SedeDetailView from './SedeDetailView';
 
 // ============================================================================
-// 1. OBSERVER PATTERN - Sistema de Eventos
+// 1. OBSERVER PATTERN
 // ============================================================================
-
 class CampusEventService {
   constructor() {
     this.listeners = new Map();
@@ -19,7 +20,6 @@ class CampusEventService {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
-    
     this.listeners.get(event).push(callback);
     
     return () => {
@@ -34,12 +34,13 @@ class CampusEventService {
   }
 
   emit(event, data) {
+    console.log(`📡 Emitiendo evento: ${event}`, data);
     if (this.listeners.has(event)) {
       this.listeners.get(event).forEach(callback => {
         try {
           callback(data);
         } catch (error) {
-          console.error(`Error en listener para evento ${event}:`, error);
+          console.error(`❌ Error en listener para evento ${event}:`, error);
         }
       });
     }
@@ -54,7 +55,6 @@ class CampusEventService {
   };
 }
 
-// Context para eventos
 const CampusEventContext = createContext(null);
 
 const CampusEventProvider = ({ children }) => {
@@ -68,7 +68,6 @@ const CampusEventProvider = ({ children }) => {
 
 const useCampusEvents = () => {
   const eventService = useContext(CampusEventContext);
-  
   if (!eventService) {
     throw new Error('useCampusEvents debe usarse dentro de CampusEventProvider');
   }
@@ -85,9 +84,8 @@ const useCampusEvents = () => {
 };
 
 // ============================================================================
-// 2. STRATEGY PATTERN - Validaciones Inteligentes
+// 2. STRATEGY PATTERN
 // ============================================================================
-
 class ValidationStrategy {
   validate(data, context = {}) {
     throw new Error('El método validate debe ser implementado');
@@ -194,15 +192,13 @@ class ValidationService {
     if (!strategy) {
       throw new Error(`Estrategia de validación no encontrada: ${mode}`);
     }
-    
     return strategy.validate(data, context);
   }
 }
 
 // ============================================================================
-// 3. FACADE PATTERN - Simplificar Operaciones CRUD
+// 3. FACADE PATTERN
 // ============================================================================
-
 class ValidationError extends Error {
   constructor(message, errors = {}) {
     super(message);
@@ -218,7 +214,6 @@ class CampusFacade {
     this.baseURL = 'http://localhost:8080/api';
   }
 
-  // API Helper methods
   async apiCall(url, options = {}) {
     const response = await fetch(`${this.baseURL}${url}`, {
       headers: {
@@ -246,13 +241,14 @@ class CampusFacade {
     };
   }
 
-  // Crear sede con validación completa
   async createCampus(campusData, existingCampuses = []) {
+    console.log('🏗️ Facade: Iniciando creación de sede', campusData);
+    
     try {
-      // 1. Validar datos
       const validation = this.validator.validate('create', campusData, { existingCampuses });
       
       if (!validation.isValid) {
+        console.log('❌ Facade: Validación fallida', validation.errors);
         this.events.emit(CampusEventService.EVENTS.VALIDATION_ERROR, {
           errors: validation.errors,
           operation: 'create'
@@ -260,29 +256,33 @@ class CampusFacade {
         throw new ValidationError('Datos inválidos', validation.errors);
       }
 
-      // 2. Preparar datos para API
       const cleanData = this.prepareDataForAPI(campusData);
+      console.log('📤 Facade: Enviando datos limpios', cleanData);
 
-      // 3. Llamar API
       const newCampus = await this.apiCall('/campuses', {
         method: 'POST',
         body: JSON.stringify(cleanData)
       });
 
-      // 4. Notificar éxito
-      this.events.emit(CampusEventService.EVENTS.CAMPUS_CREATED, {
-        campus: newCampus,
-        message: '¡Sede creada exitosamente!'
-      });
+      console.log('✅ Facade: Sede creada exitosamente', newCampus);
+
+      setTimeout(() => {
+        console.log('📡 Facade: Emitiendo evento CAMPUS_CREATED');
+        this.events.emit(CampusEventService.EVENTS.CAMPUS_CREATED, {
+          campus: newCampus,
+          message: '¡Sede creada exitosamente!'
+        });
+      }, 50);
 
       return newCampus;
 
     } catch (error) {
+      console.error('❌ Facade: Error en creación', error);
+      
       if (error instanceof ValidationError) {
         throw error;
       }
 
-      // Verificar si es error de duplicado del servidor
       if (error.message.includes('duplicate') || error.message.includes('duplicado')) {
         this.events.emit(CampusEventService.EVENTS.VALIDATION_ERROR, {
           errors: { name: 'Ya existe una sede con este nombre' },
@@ -300,10 +300,10 @@ class CampusFacade {
     }
   }
 
-  // Actualizar sede
   async updateCampus(campusId, campusData, existingCampuses = []) {
+    console.log('🔄 Facade: Actualizando sede', campusId);
+    
     try {
-      // 1. Validar datos
       const validation = this.validator.validate('edit', campusData, { 
         existingCampuses, 
         currentCampusId: campusId 
@@ -317,34 +317,26 @@ class CampusFacade {
         throw new ValidationError('Datos inválidos', validation.errors);
       }
 
-      // 2. Preparar datos
       const cleanData = this.prepareDataForAPI(campusData);
-
-      // 3. Actualizar en servidor
       const updatedCampus = await this.apiCall(`/campuses/${campusId}`, {
         method: 'PUT',
         body: JSON.stringify(cleanData)
       });
 
-      // 4. Notificar actualización
-      this.events.emit(CampusEventService.EVENTS.CAMPUS_UPDATED, {
-        campus: updatedCampus,
-        message: '¡Sede actualizada exitosamente!'
-      });
+      console.log('✅ Facade: Sede actualizada', updatedCampus);
+
+      setTimeout(() => {
+        this.events.emit(CampusEventService.EVENTS.CAMPUS_UPDATED, {
+          campus: updatedCampus,
+          message: '¡Sede actualizada exitosamente!'
+        });
+      }, 50);
 
       return updatedCampus;
 
     } catch (error) {
       if (error instanceof ValidationError) {
         throw error;
-      }
-
-      if (error.message.includes('duplicate') || error.message.includes('duplicado')) {
-        this.events.emit(CampusEventService.EVENTS.VALIDATION_ERROR, {
-          errors: { name: 'Ya existe otra sede con este nombre' },
-          operation: 'update'
-        });
-        throw new ValidationError('Sede duplicada', { name: 'Ya existe otra sede con este nombre' });
       }
 
       this.events.emit(CampusEventService.EVENTS.NETWORK_ERROR, {
@@ -356,20 +348,23 @@ class CampusFacade {
     }
   }
 
-  // Cambiar estado de sede
   async toggleCampusStatus(campus) {
+    console.log('🔄 Facade: Cambiando estado de sede', campus.name);
+    
     try {
       const updatedData = { ...campus, active: !campus.active };
       const updatedCampus = await this.updateCampus(campus.id, updatedData, []);
 
-      this.events.emit(CampusEventService.EVENTS.CAMPUS_STATUS_CHANGED, {
-        campus: updatedCampus,
-        previousStatus: campus.active,
-        newStatus: updatedCampus.active,
-        message: updatedCampus.active ? 
-          '¡Sede habilitada exitosamente!' : 
-          '¡Sede deshabilitada exitosamente!'
-      });
+      setTimeout(() => {
+        this.events.emit(CampusEventService.EVENTS.CAMPUS_STATUS_CHANGED, {
+          campus: updatedCampus,
+          previousStatus: campus.active,
+          newStatus: updatedCampus.active,
+          message: updatedCampus.active ? 
+            '¡Sede habilitada exitosamente!' : 
+            '¡Sede deshabilitada exitosamente!'
+        });
+      }, 50);
 
       return updatedCampus;
 
@@ -378,7 +373,6 @@ class CampusFacade {
     }
   }
 
-  // Obtener todas las sedes
   async getAllCampuses() {
     try {
       return await this.apiCall('/campuses');
@@ -392,7 +386,6 @@ class CampusFacade {
   }
 }
 
-// Hook para usar el Facade
 const useCampusFacade = () => {
   const { emit } = useCampusEvents();
   
@@ -406,9 +399,8 @@ const useCampusFacade = () => {
 };
 
 // ============================================================================
-// 4. COMPONENTE PRINCIPAL CON PATRONES INTEGRADOS
+// 4. COMPONENTE PRINCIPAL
 // ============================================================================
-
 const CampusTestWithPatterns = () => {
   const [campuses, setCampuses] = useState([]);
   const [selectedCampus, setSelectedCampus] = useState(null);
@@ -421,48 +413,133 @@ const CampusTestWithPatterns = () => {
   const [createLoading, setCreateLoading] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   
-  const { toasts, showSuccess, showError, removeToast } = useToast();
-  const { subscribe, EVENTS } = useCampusEvents();
+  const { 
+    toasts, 
+    showSuccess, 
+    showError, 
+    removeToast,
+    showCampusCreated,
+    showCampusUpdated,
+    showCampusStatusChanged,
+    showDetailedError,
+    addToast
+  } = useToast();
+  
+const { subscribe, EVENTS } = useCampusEvents();
   const facade = useCampusFacade();
+  
+  const {
+    confirmationState,
+    handleConfirm,
+    handleCancel,
+    confirmDelete,
+    confirmEnable
+  } = useConfirmation();
 
-  // Configurar listeners del Observer Pattern
   useEffect(() => {
+    console.log('🎧 Configurando listeners de eventos');
+    
     const unsubscribers = [
       subscribe(EVENTS.CAMPUS_CREATED, ({ campus, message }) => {
+        console.log('🎉 Listener: CAMPUS_CREATED recibido', campus);
+        
         setCampuses(prev => [...prev, campus]);
         setShowCreateModal(false);
-        showSuccess(message);
+        
+        setTimeout(() => {
+          console.log('🍞 Ejecutando showCampusCreated');
+          if (showCampusCreated) {
+            showCampusCreated(campus, "¡Tu nueva sede está lista y operativa!");
+          } else {
+            addToast(
+              `¡Sede "${campus.name}" creada exitosamente!`, 
+              'campus_created', 
+              6000, 
+              {
+                title: '🏢 ¡Nueva Sede Creada!',
+                campus: campus
+              }
+            );
+          }
+        }, 100);
       }),
 
       subscribe(EVENTS.CAMPUS_UPDATED, ({ campus, message }) => {
+        console.log('🎉 Listener: CAMPUS_UPDATED recibido', campus);
         setCampuses(prev => prev.map(c => c.id === campus.id ? campus : c));
         setSelectedCampus(campus);
-        showSuccess(message);
+        
+        if (showCampusUpdated) {
+          showCampusUpdated(campus, "Todos los cambios han sido aplicados correctamente.");
+        } else {
+          showSuccess(`¡Sede "${campus.name}" actualizada exitosamente!`);
+        }
       }),
 
-      subscribe(EVENTS.CAMPUS_STATUS_CHANGED, ({ campus, message }) => {
+      subscribe(EVENTS.CAMPUS_STATUS_CHANGED, ({ campus, message, previousStatus }) => {
+        console.log('🎉 Listener: CAMPUS_STATUS_CHANGED recibido', campus);
         setCampuses(prev => prev.map(c => c.id === campus.id ? campus : c));
         if (selectedCampus?.id === campus.id) {
           setSelectedCampus(campus);
         }
-        showSuccess(message);
+        
+        if (showCampusStatusChanged) {
+          showCampusStatusChanged(campus, campus.active);
+        } else {
+          const statusText = campus.active ? 'habilitada' : 'inhabilitada';
+          showSuccess(`¡Sede "${campus.name}" ${statusText} exitosamente!`);
+        }
       }),
 
-      subscribe(EVENTS.VALIDATION_ERROR, ({ errors }) => {
+      subscribe(EVENTS.VALIDATION_ERROR, ({ errors, operation }) => {
+        console.log('❌ Listener: VALIDATION_ERROR recibido', errors);
         const errorMessage = Object.values(errors)[0] || 'Error de validación';
-        showError(errorMessage);
+        
+        if (showDetailedError) {
+          showDetailedError(
+            'Error de Validación',
+            errorMessage,
+            operation === 'create' ? { name: 'Nueva Sede' } : selectedCampus
+          );
+        } else {
+          showError(errorMessage);
+        }
       }),
 
-      subscribe(EVENTS.NETWORK_ERROR, ({ error }) => {
-        showError(error);
+      subscribe(EVENTS.NETWORK_ERROR, ({ error, operation }) => {
+        console.log('❌ Listener: NETWORK_ERROR recibido', error);
+        
+        if (showDetailedError) {
+          showDetailedError(
+            'Error de Conexión',
+            `No se pudo ${operation === 'create' ? 'crear' : operation === 'update' ? 'actualizar' : 'cargar'} la sede. Verifica tu conexión.`,
+            null
+          );
+        } else {
+          showError(error);
+        }
       })
     ];
 
-    return () => unsubscribers.forEach(unsub => unsub());
-  }, [subscribe, EVENTS, showSuccess, showError, selectedCampus]);
+    return () => {
+      console.log('🔌 Desconectando listeners');
+      unsubscribers.forEach(unsub => unsub());
+    };
+  }, [
+    subscribe, 
+    EVENTS, 
+    showCampusCreated, 
+    showCampusUpdated, 
+    showCampusStatusChanged, 
+    showDetailedError, 
+    showSuccess,
+    showError,
+    addToast,
+    selectedCampus
+  ]);
 
-  // Cargar sedes usando Facade
   const loadCampuses = useCallback(async () => {
+    console.log('📥 Cargando sedes...');
     setLoading(true);
     setError(null);
     try {
@@ -471,7 +548,7 @@ const CampusTestWithPatterns = () => {
       console.log('✅ Sedes cargadas:', data);
     } catch (err) {
       setError(err.message);
-      console.error('❌ Error:', err);
+      console.error('❌ Error cargando sedes:', err);
     } finally {
       setLoading(false);
     }
@@ -481,7 +558,61 @@ const CampusTestWithPatterns = () => {
     loadCampuses();
   }, [loadCampuses]);
 
-  // Navegación (mantener compatibilidad)
+  const handleCreateCampus = useCallback(async (formData) => {
+    console.log('🚀 Componente: Iniciando creación de sede', formData);
+    setCreateLoading(true);
+    
+    try {
+      const newCampus = await facade.createCampus(formData, campuses);
+      console.log('✅ Componente: Sede creada a través del Facade', newCampus);
+      
+    } catch (error) {
+      console.error('❌ Componente: Error en creación', error);
+      
+      if (!(error instanceof ValidationError)) {
+        throw error;
+      }
+    } finally {
+      setCreateLoading(false);
+    }
+  }, [facade, campuses]);
+
+  const handleSave = useCallback(async (campusId, formData) => {
+    try {
+      return await facade.updateCampus(campusId, formData, campuses);
+    } catch (error) {
+      if (!(error instanceof ValidationError)) {
+        throw error;
+      }
+    }
+  }, [facade, campuses]);
+
+  const handleToggleStatus = useCallback(async (campus) => {
+    try {
+      const confirmed = await (campus.active ? confirmDelete(campus) : confirmEnable(campus));
+      
+      if (confirmed) {
+        await facade.toggleCampusStatus(campus);
+      }
+    } catch (error) {
+      console.error('❌ Error al cambiar estado:', error);
+    }
+  }, [facade, confirmDelete, confirmEnable]);
+
+  const handleCampusSelect = useCallback((campus) => {
+    setSelectedCampus(campus);
+    setViewMode('detail');
+  }, []);
+
+  const filteredCampuses = campuses.filter(campus => {
+    const matchesSearch = campus.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         campus.address.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = showInactive ? !campus.active : campus.active;
+    
+    return matchesSearch && matchesStatus;
+  });
+
   useEffect(() => {
     const handleNavigateToHome = () => {
       setCurrentView('campus');
@@ -521,67 +652,6 @@ const CampusTestWithPatterns = () => {
     };
   }, []);
 
-  const handleCampusSelect = useCallback((campus) => {
-    setSelectedCampus(campus);
-    setViewMode('detail');
-  }, []);
-
-  // Operaciones CRUD simplificadas usando Facade y Patterns
-  const handleCreateCampus = useCallback(async (formData) => {
-    setCreateLoading(true);
-    try {
-      await facade.createCampus(formData, campuses);
-    } catch (error) {
-      // Los errores ya son manejados por el Observer Pattern
-      if (error instanceof ValidationError) {
-        console.log('Error de validación:', error.errors);
-      } else {
-        console.error('Error en creación:', error);
-      }
-      throw error; // Re-throw para que el modal lo maneje
-    } finally {
-      setCreateLoading(false);
-    }
-  }, [facade, campuses]);
-
-  const handleSave = useCallback(async (campusId, formData) => {
-    try {
-      return await facade.updateCampus(campusId, formData, campuses);
-    } catch (error) {
-      if (error instanceof ValidationError) {
-        console.log('Error de validación:', error.errors);
-      } else {
-        console.error('Error en actualización:', error);
-      }
-      throw error;
-    }
-  }, [facade, campuses]);
-
-  const handleToggleStatus = useCallback(async (campus) => {
-    const action = campus.active ? 'inhabilitar' : 'habilitar';
-    const confirmMessage = campus.active 
-      ? `¿Seguro que quieres inhabilitar la sede "${campus.name}"?`
-      : `¿Seguro que quieres habilitar la sede "${campus.name}"?`;
-
-    if (window.confirm(confirmMessage)) {
-      try {
-        await facade.toggleCampusStatus(campus);
-      } catch (error) {
-        showError(`Error al ${action} la sede: ` + error.message);
-      }
-    }
-  }, [facade, showError]);
-
-  const filteredCampuses = campuses.filter(campus => {
-    const matchesSearch = campus.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         campus.address.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = showInactive ? !campus.active : campus.active;
-    
-    return matchesSearch && matchesStatus;
-  });
-
-  // Header unificado (mantener el diseño existente)
   const UnifiedHeader = () => (
     <header style={{
       background: 'linear-gradient(135deg, #3730a3 0%, #4c1d95 100%)',
@@ -878,6 +948,21 @@ const CampusTestWithPatterns = () => {
         <CampusAssignment />
       )}
       
+      {/* Modal de confirmación personalizado */}
+      <ConfirmationModal
+        isOpen={confirmationState.isOpen}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+        title={confirmationState.title}
+        message={confirmationState.message}
+        confirmText={confirmationState.confirmText}
+        cancelText={confirmationState.cancelText}
+        type={confirmationState.type}
+        campus={confirmationState.campus}
+        isLoading={confirmationState.isLoading}
+      />
+      
+      {/* Modal de creación */}
       <CreateCampusModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
@@ -886,26 +971,198 @@ const CampusTestWithPatterns = () => {
         campusList={campuses}
       />
       
-      <div className="toast-container-wrapper">
-        {toasts.map((toast) => (
-          <Toast
-            key={toast.id}
-            message={toast.message}
-            type={toast.type}
-            duration={toast.duration}
-            isVisible={toast.isVisible}
-            onClose={() => removeToast(toast.id)}
-          />
-        ))}
+      {/* SISTEMA DE TOASTS CENTRADOS EN LA PANTALLA */}
+      <div style={{
+        position: 'fixed',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        zIndex: 9999,
+        pointerEvents: 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1rem',
+        maxWidth: '90vw',
+        width: '500px'
+      }}>
+        {toasts.map((toast) => {
+          console.log('🍞 Renderizando toast centrado:', toast);
+          return (
+            <div
+              key={toast.id}
+              style={{
+                pointerEvents: 'auto',
+                animation: toast.isVisible ? 'toastSlideInCenter 0.6s ease-out' : 'toastSlideOutCenter 0.3s ease-in'
+              }}
+            >
+              <Toast
+                message={toast.message}
+                type={toast.type}
+                duration={toast.duration}
+                isVisible={toast.isVisible}
+                onClose={() => removeToast(toast.id)}
+                title={toast.title}
+                campus={toast.campus}
+              />
+            </div>
+          );
+        })}
       </div>
+      
+      {/* BOTÓN DE DEBUG PARA TESTING */}
+      <button
+        style={{
+          position: 'fixed',
+          bottom: '20px',
+          left: '20px',
+          background: '#ff6b6b',
+          color: 'white',
+          border: 'none',
+          padding: '10px 20px',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          zIndex: 9999,
+          fontSize: '12px'
+        }}
+        onClick={() => {
+          console.log('🧪 TEST: Probando toast centrado');
+          if (showCampusCreated) {
+            showCampusCreated(
+              { 
+                name: 'Sede de Prueba', 
+                address: 'Calle Falsa 123', 
+                telephone: '123456789',
+                active: true 
+              }, 
+              "¡Esta es una prueba del toast centrado!"
+            );
+          } else {
+            addToast('Toast de prueba centrado', 'success', 3000);
+          }
+        }}
+      >
+        🧪 TEST Toast
+      </button>
+
+      {/* ESTILOS CSS GLOBALES */}
+      <style jsx global>{`
+        @keyframes toastSlideInCenter {
+          0% {
+            opacity: 0;
+            transform: scale(0.8) translateY(-30px);
+          }
+          100% {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+        }
+
+        @keyframes toastSlideOutCenter {
+          0% {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+          100% {
+            opacity: 0;
+            transform: scale(0.8) translateY(-30px);
+          }
+        }
+
+        .toast-center-container {
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          z-index: 9999;
+          pointer-events: none;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+          max-width: 90vw;
+          width: 500px;
+        }
+
+        .toast-center-container .toast-notification {
+          pointer-events: auto;
+          animation: toastSlideInCenter 0.6s ease-out;
+        }
+
+        .toast-center-container .toast-notification.toast-hide {
+          animation: toastSlideOutCenter 0.3s ease-in;
+        }
+
+        .toast-center-container .toast-container {
+          backdrop-filter: blur(12px);
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3) !important;
+          border: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        @media (max-width: 768px) {
+          .toast-center-container {
+            width: 95vw !important;
+            max-width: none !important;
+            padding: 0 1rem;
+          }
+
+          .toast-center-container .toast-container {
+            font-size: 0.875rem;
+          }
+
+          .toast-center-container .toast-campus-title {
+            font-size: 1rem !important;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .toast-center-container {
+            width: 98vw !important;
+            padding: 0 0.5rem;
+          }
+
+          .toast-center-container .toast-campus-header {
+            flex-direction: column !important;
+            text-align: center !important;
+            gap: 0.75rem !important;
+          }
+
+          .toast-center-container .toast-campus-icon {
+            align-self: center !important;
+          }
+        }
+
+        .toast-center-container .toast-notification {
+          filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.2));
+        }
+
+        .toast-center-container .toast-notification:hover {
+          transform: scale(1.02);
+          transition: transform 0.2s ease;
+        }
+
+        .toast-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.1);
+          z-index: 9998;
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 0.3s ease;
+        }
+
+        .toast-overlay.visible {
+          opacity: 1;
+        }
+      `}</style>
     </div>
   );
 };
 
 // ============================================================================
-// 5. WRAPPER CON PROVIDER PARA USAR LOS PATRONES
+// 5. WRAPPER CON PROVIDER
 // ============================================================================
-
 const CampusTest = () => (
   <CampusEventProvider>
     <CampusTestWithPatterns />

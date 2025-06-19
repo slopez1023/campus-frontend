@@ -1,4 +1,5 @@
-// src/components/SedeDetailView.jsx - VERSIÓN MEJORADA CON BUSCADOR INTEGRADO
+// src/components/SedeDetailView.jsx - FIX DEFINITIVO PARA EDICIÓN
+
 import React, { useState, useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { useCampusValidation } from '../hooks/useCampusValidation';
@@ -29,8 +30,6 @@ const SedeDetailView = ({
   const { 
     errors, 
     validateForm, 
-    validateSingleField, 
-    clearFieldError, 
     clearAllErrors,
     hasErrors 
   } = useCampusValidation(campusList);
@@ -39,13 +38,6 @@ const SedeDetailView = ({
   useEffect(() => {
     setLocalSearchTerm(searchTerm || '');
   }, [searchTerm]);
-
-  // Verificar si la sede existe
-  useEffect(() => {
-    if (searchTerm && !selectedCampus && filteredCampuses.length === 0) {
-      console.log('Sede no encontrada para:', searchTerm);
-    }
-  }, [selectedCampus, filteredCampuses, searchTerm]);
 
   const handleEdit = useCallback(() => {
     if (!selectedCampus) return;
@@ -60,16 +52,18 @@ const SedeDetailView = ({
     setIsEditing(true);
     clearAllErrors();
     setSubmitAttempted(false);
+    console.log('🎯 Iniciando edición para:', selectedCampus.name);
   }, [selectedCampus, clearAllErrors]);
 
   const handleSave = useCallback(async () => {
+    console.log('💾 Intentando guardar con datos:', editForm);
     setSubmitAttempted(true);
     
-    // Validar formulario completo
+    // Validar formulario completo SOLO al guardar
     const isValid = validateForm(editForm, selectedCampus?.id);
     
     if (!isValid) {
-      console.log('Formulario de edición inválido:', errors);
+      console.log('❌ Formulario inválido:', errors);
       return;
     }
 
@@ -82,40 +76,35 @@ const SedeDetailView = ({
       setEditForm({});
       clearAllErrors();
       setSubmitAttempted(false);
+      console.log('✅ Guardado exitosamente');
     } catch (error) {
-      console.error('Error al guardar:', error);
-      
-      // Manejar errores específicos del servidor
-      if (error.message?.includes('duplicate') || error.message?.includes('duplicado')) {
-        validateSingleField('name', editForm.name, selectedCampus?.id);
-      }
+      console.error('❌ Error al guardar:', error);
     } finally {
       setIsSaving(false);
     }
-  }, [selectedCampus, editForm, onSave, validateForm, errors, validateSingleField, clearAllErrors]);
+  }, [selectedCampus, editForm, onSave, validateForm, errors, clearAllErrors]);
 
   const handleCancel = useCallback(() => {
     setIsEditing(false);
     setEditForm({});
     clearAllErrors();
     setSubmitAttempted(false);
+    console.log('❌ Edición cancelada');
   }, [clearAllErrors]);
 
+  // ← FUNCIÓN COMPLETAMENTE SIMPLIFICADA - SIN VALIDACIÓN EN TIEMPO REAL
   const handleInputChange = useCallback((field, value) => {
+    console.log(`✏️ Cambiando ${field}:`, value);
+    
+    // SOLO actualizar el estado, sin validaciones
     setEditForm(prev => ({
       ...prev,
       [field]: value
     }));
-
-    // Validar campo individual solo después del primer intento de envío
-    if (submitAttempted && field !== 'active') {
-      setTimeout(() => {
-        validateSingleField(field, value, selectedCampus?.id);
-      }, 300);
-    } else if (errors[field]) {
-      clearFieldError(field);
-    }
-  }, [submitAttempted, validateSingleField, selectedCampus?.id, errors, clearFieldError]);
+    
+    // NO hacer validación en tiempo real
+    // La validación ocurre SOLO cuando se presiona "Guardar"
+  }, []);
 
   const formatPhone = useCallback((value) => {
     const cleaned = value.replace(/\D/g, '');
@@ -132,45 +121,42 @@ const SedeDetailView = ({
     handleInputChange('telephone', formatted);
   }, [handleInputChange, formatPhone]);
 
-  // NUEVA FUNCIONALIDAD: Manejar búsqueda con botón
+  // Función de búsqueda con botón
   const handleSearchSubmit = useCallback((e) => {
     e.preventDefault();
     setIsSearching(true);
     setSearchPerformed(true);
     
-    // Simular delay de búsqueda para mejor UX
     setTimeout(() => {
       onSearchChange(localSearchTerm.trim());
       setIsSearching(false);
     }, 300);
   }, [localSearchTerm, onSearchChange]);
 
-  // Manejar cambio en el input de búsqueda
   const handleSearchInputChange = useCallback((e) => {
     const value = e.target.value;
     setLocalSearchTerm(value);
     
-    // Si el usuario borra todo el texto, limpiar búsqueda
     if (!value.trim()) {
       setSearchPerformed(false);
       onSearchChange('');
     }
   }, [onSearchChange]);
 
-  // Limpiar búsqueda
   const handleClearSearch = useCallback(() => {
     setLocalSearchTerm('');
     setSearchPerformed(false);
     onSearchChange('');
   }, [onSearchChange]);
 
-  // Obtener clase CSS para input con error
+  // ← FUNCIÓN SIMPLIFICADA - Solo mostrar errores después de submit
   const getInputClassName = useCallback((fieldName) => {
     const baseClass = "field-input";
-    return errors[fieldName] ? `${baseClass} field-input-error` : baseClass;
-  }, [errors]);
+    // Solo mostrar error si ya se intentó guardar Y hay errores
+    return (submitAttempted && errors[fieldName]) ? `${baseClass} field-input-error` : baseClass;
+  }, [errors, submitAttempted]);
 
-  // Componente para campo de entrada
+  // ← COMPONENTE INPUT COMPLETAMENTE SIMPLIFICADO
   const InputField = ({ 
     label, 
     name, 
@@ -197,8 +183,10 @@ const SedeDetailView = ({
             placeholder={placeholder}
             maxLength={maxLength}
             disabled={disabled}
+            // ← SIN onBlur ni validaciones adicionales
           />
-          {errors[name] && (
+          {/* Solo mostrar errores DESPUÉS de intentar guardar */}
+          {submitAttempted && errors[name] && (
             <span className="field-error" role="alert">
               ⚠️ {errors[name]}
             </span>
@@ -210,7 +198,7 @@ const SedeDetailView = ({
     </div>
   );
 
-  // Componente mejorado para lista de sedes en sidebar
+  // Componente para lista de sedes en sidebar
   const CampusList = ({ campuses, selectedCampusId, onSelect }) => (
     <div className="campus-list">
       {campuses.length === 0 && searchPerformed ? (
@@ -243,7 +231,7 @@ const SedeDetailView = ({
     </div>
   );
 
-  // Vista de sede no encontrada mejorada
+  // Vista de sede no encontrada
   const NotFoundView = () => (
     <div>
       <UnifiedHeader />
@@ -406,7 +394,7 @@ const SedeDetailView = ({
                     type="button"
                     className="btn-primary" 
                     onClick={handleSave}
-                    disabled={isSaving || (submitAttempted && hasErrors)}
+                    disabled={isSaving}
                   >
                     {isSaving ? (
                       <>
@@ -432,7 +420,7 @@ const SedeDetailView = ({
 
           <div className="content-subtitle">{selectedCampus.name}</div>
 
-          {/* Mostrar resumen de errores si hay muchos y se está editando */}
+          {/* Mostrar resumen de errores SOLO después de intentar guardar */}
           {isEditing && hasErrors && submitAttempted && (
             <div style={{
               background: '#fef2f2',
@@ -451,7 +439,7 @@ const SedeDetailView = ({
                 alignItems: 'center',
                 gap: '0.5rem'
               }}>
-                ⚠️ Por favor, corrija los siguientes errores:
+                ⚠️ Por favor, corrija los siguientes errores antes de guardar:
               </div>
               <ul style={{
                 margin: '0',
@@ -484,7 +472,7 @@ const SedeDetailView = ({
                 </div>
               </div>
 
-              {/* Campos editables usando el componente InputField */}
+              {/* ← CAMPOS SIMPLIFICADOS SIN VALIDACIÓN EN TIEMPO REAL */}
               <InputField
                 label="Nombre de la Sede"
                 name="name"
@@ -522,7 +510,7 @@ const SedeDetailView = ({
                       maxLength={200}
                       disabled={isSaving}
                     />
-                    {errors.address && (
+                    {submitAttempted && errors.address && (
                       <span className="field-error" role="alert">
                         ⚠️ {errors.address}
                       </span>
@@ -548,7 +536,7 @@ const SedeDetailView = ({
                       maxLength={13}
                       disabled={isSaving}
                     />
-                    {errors.telephone && (
+                    {submitAttempted && errors.telephone && (
                       <span className="field-error" role="alert">
                         ⚠️ {errors.telephone}
                       </span>
@@ -594,7 +582,6 @@ const SedeDetailView = ({
         <div className="sidebar">
           <div className="sidebar-header">
             <div className="sidebar-title">Buscar Sedes</div>
-            {/* BUSCADOR MEJORADO CON BOTÓN */}
             <form onSubmit={handleSearchSubmit} className="search-form">
               <div className="search-input-container">
                 <input
@@ -636,8 +623,24 @@ const SedeDetailView = ({
         </div>
       </div>
 
-      {/* ESTILOS CSS EMBEBIDOS MEJORADOS */}
+      {/* Estilos CSS embebidos */}
       <style jsx>{`
+        .field-input {
+          padding: 0.75rem;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          font-size: 0.875rem;
+          transition: border-color 0.2s;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        .field-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
         .field-input-error {
           border-color: #ef4444 !important;
           background: #fef2f2 !important;
@@ -686,7 +689,6 @@ const SedeDetailView = ({
           padding-left: calc(1.5rem - 4px);
         }
 
-        /* NUEVOS ESTILOS PARA EL BUSCADOR MEJORADO */
         .search-form {
           margin-top: 1rem;
         }
@@ -715,11 +717,6 @@ const SedeDetailView = ({
           font-size: 0.875rem;
           background: transparent;
           color: #1f2937;
-        }
-
-        .search-input:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
         }
 
         .search-button {
@@ -805,18 +802,6 @@ const SedeDetailView = ({
           box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
         }
 
-        .sr-only {
-          position: absolute;
-          width: 1px;
-          height: 1px;
-          padding: 0;
-          margin: -1px;
-          overflow: hidden;
-          clip: rect(0, 0, 0, 0);
-          white-space: nowrap;
-          border: 0;
-        }
-
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
@@ -831,30 +816,11 @@ const SedeDetailView = ({
           opacity: 0.6;
           cursor: not-allowed;
         }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-          .search-input-container {
-            flex-direction: column;
-          }
-          
-          .search-button {
-            width: 100%;
-            margin-top: 0.5rem;
-          }
-          
-          .clear-button {
-            position: absolute;
-            top: 0.5rem;
-            right: 0.5rem;
-          }
-        }
       `}</style>
     </div>
   );
 };
 
-// PropTypes para validación de props
 SedeDetailView.propTypes = {
   selectedCampus: PropTypes.shape({
     id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,

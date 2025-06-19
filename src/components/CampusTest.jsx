@@ -707,7 +707,6 @@ const { subscribe, EVENTS } = useCampusEvents();
               { key: 'home', label: 'Home', event: 'navigateToHome' },
               { key: 'assignment', label: 'Asignaciones', event: 'navigateToAssignment' },
               { key: 'create', label: 'Crear', event: 'navigateToCreate' },
-              { key: 'edit', label: 'Editar', event: 'navigateToEdit' },
               { key: 'campus', label: 'Sedes', event: 'navigateToSedes' }
             ].map(({ key, label, event }) => (
               <button 
@@ -782,7 +781,7 @@ const { subscribe, EVENTS } = useCampusEvents();
           }}>
             <button 
               style={{
-                background: showInactive ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg, #6b7280, #4b5563)',
+                background: showInactive ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg,rgb(158, 164, 176),rgb(111, 120, 134))',
                 color: 'white',
                 border: 'none',
                 padding: '0.5rem 1rem',

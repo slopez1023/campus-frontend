@@ -1,13 +1,415 @@
-// src/components/CampusTest.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+// src/components/CampusTest.jsx - CON PATRONES DE DISEÑO INTEGRADOS
+import React, { useState, useEffect, useCallback, createContext, useContext, useMemo } from 'react';
 import Toast from './Toast';
 import useToast from '../hooks/useToast';
 import CampusAssignment from './CampusAssignment';
 import CreateCampusModal from './CreateCampusModal';
 import SedeDetailView from './SedeDetailView';
-import { errorMessages } from '../utils/errorMessages';
 
-const CampusTest = () => {
+// ============================================================================
+// 1. OBSERVER PATTERN - Sistema de Eventos
+// ============================================================================
+
+class CampusEventService {
+  constructor() {
+    this.listeners = new Map();
+  }
+
+  subscribe(event, callback) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
+    }
+    
+    this.listeners.get(event).push(callback);
+    
+    return () => {
+      const callbacks = this.listeners.get(event);
+      if (callbacks) {
+        const index = callbacks.indexOf(callback);
+        if (index > -1) {
+          callbacks.splice(index, 1);
+        }
+      }
+    };
+  }
+
+  emit(event, data) {
+    if (this.listeners.has(event)) {
+      this.listeners.get(event).forEach(callback => {
+        try {
+          callback(data);
+        } catch (error) {
+          console.error(`Error en listener para evento ${event}:`, error);
+        }
+      });
+    }
+  }
+
+  static EVENTS = {
+    CAMPUS_CREATED: 'campus:created',
+    CAMPUS_UPDATED: 'campus:updated',
+    CAMPUS_STATUS_CHANGED: 'campus:status_changed',
+    VALIDATION_ERROR: 'campus:validation_error',
+    NETWORK_ERROR: 'campus:network_error'
+  };
+}
+
+// Context para eventos
+const CampusEventContext = createContext(null);
+
+const CampusEventProvider = ({ children }) => {
+  const eventService = useMemo(() => new CampusEventService(), []);
+  return (
+    <CampusEventContext.Provider value={eventService}>
+      {children}
+    </CampusEventContext.Provider>
+  );
+};
+
+const useCampusEvents = () => {
+  const eventService = useContext(CampusEventContext);
+  
+  if (!eventService) {
+    throw new Error('useCampusEvents debe usarse dentro de CampusEventProvider');
+  }
+
+  const subscribe = useCallback((event, callback) => {
+    return eventService.subscribe(event, callback);
+  }, [eventService]);
+
+  const emit = useCallback((event, data) => {
+    eventService.emit(event, data);
+  }, [eventService]);
+
+  return { subscribe, emit, EVENTS: CampusEventService.EVENTS };
+};
+
+// ============================================================================
+// 2. STRATEGY PATTERN - Validaciones Inteligentes
+// ============================================================================
+
+class ValidationStrategy {
+  validate(data, context = {}) {
+    throw new Error('El método validate debe ser implementado');
+  }
+}
+
+class CreateCampusStrategy extends ValidationStrategy {
+  validate(data, { existingCampuses = [] } = {}) {
+    const errors = {};
+
+    if (!data.name?.trim()) {
+      errors.name = 'El nombre es obligatorio para crear una sede';
+    } else if (data.name.trim().length < 3) {
+      errors.name = 'El nombre debe tener al menos 3 caracteres';
+    } else {
+      const isDuplicate = existingCampuses.some(campus => 
+        campus.name.toLowerCase() === data.name.trim().toLowerCase()
+      );
+      if (isDuplicate) {
+        errors.name = 'Ya existe una sede con este nombre';
+      }
+    }
+
+    if (!data.address?.trim()) {
+      errors.address = 'La dirección es obligatoria';
+    } else if (data.address.trim().length < 10) {
+      errors.address = 'La dirección debe ser más específica (mínimo 10 caracteres)';
+    }
+
+    if (!data.city?.trim()) {
+      errors.city = 'La ciudad es obligatoria';
+    }
+
+    if (data.telephone && !this.isValidPhone(data.telephone)) {
+      errors.telephone = 'El formato del teléfono no es válido (debe tener 10 dígitos)';
+    }
+
+    return {
+      isValid: Object.keys(errors).length === 0,
+      errors
+    };
+  }
+
+  isValidPhone(phone) {
+    const cleaned = phone.replace(/\D/g, '');
+    return cleaned.length === 10;
+  }
+}
+
+class EditCampusStrategy extends ValidationStrategy {
+  validate(data, { existingCampuses = [], currentCampusId = null } = {}) {
+    const errors = {};
+
+    if (!data.name?.trim()) {
+      errors.name = 'El nombre no puede estar vacío';
+    } else if (data.name.trim().length < 2) {
+      errors.name = 'El nombre debe tener al menos 2 caracteres';
+    } else {
+      const isDuplicate = existingCampuses.some(campus => 
+        campus.name.toLowerCase() === data.name.trim().toLowerCase() &&
+        campus.id !== currentCampusId
+      );
+      if (isDuplicate) {
+        errors.name = 'Ya existe otra sede con este nombre';
+      }
+    }
+
+    if (!data.address?.trim()) {
+      errors.address = 'La dirección no puede estar vacía';
+    } else if (data.address.trim().length < 5) {
+      errors.address = 'La dirección debe tener al menos 5 caracteres';
+    }
+
+    if (!data.city?.trim()) {
+      errors.city = 'La ciudad no puede estar vacía';
+    }
+
+    if (data.telephone && data.telephone.trim() && !this.isValidPhone(data.telephone)) {
+      errors.telephone = 'El formato del teléfono no es válido';
+    }
+
+    return {
+      isValid: Object.keys(errors).length === 0,
+      errors
+    };
+  }
+
+  isValidPhone(phone) {
+    const cleaned = phone.replace(/\D/g, '');
+    return cleaned.length >= 7 && cleaned.length <= 10;
+  }
+}
+
+class ValidationService {
+  constructor() {
+    this.strategies = {
+      create: new CreateCampusStrategy(),
+      edit: new EditCampusStrategy()
+    };
+  }
+
+  validate(mode, data, context = {}) {
+    const strategy = this.strategies[mode];
+    if (!strategy) {
+      throw new Error(`Estrategia de validación no encontrada: ${mode}`);
+    }
+    
+    return strategy.validate(data, context);
+  }
+}
+
+// ============================================================================
+// 3. FACADE PATTERN - Simplificar Operaciones CRUD
+// ============================================================================
+
+class ValidationError extends Error {
+  constructor(message, errors = {}) {
+    super(message);
+    this.name = 'ValidationError';
+    this.errors = errors;
+  }
+}
+
+class CampusFacade {
+  constructor(validationService, eventService) {
+    this.validator = validationService;
+    this.events = eventService;
+    this.baseURL = 'http://localhost:8080/api';
+  }
+
+  // API Helper methods
+  async apiCall(url, options = {}) {
+    const response = await fetch(`${this.baseURL}${url}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      ...options
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error en la comunicación con el servidor');
+    }
+
+    return response.json();
+  }
+
+  prepareDataForAPI(data) {
+    return {
+      name: data.name?.trim(),
+      address: data.address?.trim(),
+      city: data.city?.trim(),
+      telephone: data.telephone?.replace(/\D/g, '') || null,
+      active: data.active !== undefined ? data.active : true
+    };
+  }
+
+  // Crear sede con validación completa
+  async createCampus(campusData, existingCampuses = []) {
+    try {
+      // 1. Validar datos
+      const validation = this.validator.validate('create', campusData, { existingCampuses });
+      
+      if (!validation.isValid) {
+        this.events.emit(CampusEventService.EVENTS.VALIDATION_ERROR, {
+          errors: validation.errors,
+          operation: 'create'
+        });
+        throw new ValidationError('Datos inválidos', validation.errors);
+      }
+
+      // 2. Preparar datos para API
+      const cleanData = this.prepareDataForAPI(campusData);
+
+      // 3. Llamar API
+      const newCampus = await this.apiCall('/campuses', {
+        method: 'POST',
+        body: JSON.stringify(cleanData)
+      });
+
+      // 4. Notificar éxito
+      this.events.emit(CampusEventService.EVENTS.CAMPUS_CREATED, {
+        campus: newCampus,
+        message: '¡Sede creada exitosamente!'
+      });
+
+      return newCampus;
+
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+
+      // Verificar si es error de duplicado del servidor
+      if (error.message.includes('duplicate') || error.message.includes('duplicado')) {
+        this.events.emit(CampusEventService.EVENTS.VALIDATION_ERROR, {
+          errors: { name: 'Ya existe una sede con este nombre' },
+          operation: 'create'
+        });
+        throw new ValidationError('Sede duplicada', { name: 'Ya existe una sede con este nombre' });
+      }
+
+      this.events.emit(CampusEventService.EVENTS.NETWORK_ERROR, {
+        error: error.message,
+        operation: 'create'
+      });
+
+      throw new Error('Error al crear la sede: ' + error.message);
+    }
+  }
+
+  // Actualizar sede
+  async updateCampus(campusId, campusData, existingCampuses = []) {
+    try {
+      // 1. Validar datos
+      const validation = this.validator.validate('edit', campusData, { 
+        existingCampuses, 
+        currentCampusId: campusId 
+      });
+
+      if (!validation.isValid) {
+        this.events.emit(CampusEventService.EVENTS.VALIDATION_ERROR, {
+          errors: validation.errors,
+          operation: 'update'
+        });
+        throw new ValidationError('Datos inválidos', validation.errors);
+      }
+
+      // 2. Preparar datos
+      const cleanData = this.prepareDataForAPI(campusData);
+
+      // 3. Actualizar en servidor
+      const updatedCampus = await this.apiCall(`/campuses/${campusId}`, {
+        method: 'PUT',
+        body: JSON.stringify(cleanData)
+      });
+
+      // 4. Notificar actualización
+      this.events.emit(CampusEventService.EVENTS.CAMPUS_UPDATED, {
+        campus: updatedCampus,
+        message: '¡Sede actualizada exitosamente!'
+      });
+
+      return updatedCampus;
+
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+
+      if (error.message.includes('duplicate') || error.message.includes('duplicado')) {
+        this.events.emit(CampusEventService.EVENTS.VALIDATION_ERROR, {
+          errors: { name: 'Ya existe otra sede con este nombre' },
+          operation: 'update'
+        });
+        throw new ValidationError('Sede duplicada', { name: 'Ya existe otra sede con este nombre' });
+      }
+
+      this.events.emit(CampusEventService.EVENTS.NETWORK_ERROR, {
+        error: error.message,
+        operation: 'update'
+      });
+
+      throw new Error('Error al actualizar la sede: ' + error.message);
+    }
+  }
+
+  // Cambiar estado de sede
+  async toggleCampusStatus(campus) {
+    try {
+      const updatedData = { ...campus, active: !campus.active };
+      const updatedCampus = await this.updateCampus(campus.id, updatedData, []);
+
+      this.events.emit(CampusEventService.EVENTS.CAMPUS_STATUS_CHANGED, {
+        campus: updatedCampus,
+        previousStatus: campus.active,
+        newStatus: updatedCampus.active,
+        message: updatedCampus.active ? 
+          '¡Sede habilitada exitosamente!' : 
+          '¡Sede deshabilitada exitosamente!'
+      });
+
+      return updatedCampus;
+
+    } catch (error) {
+      throw new Error('Error al cambiar estado de la sede: ' + error.message);
+    }
+  }
+
+  // Obtener todas las sedes
+  async getAllCampuses() {
+    try {
+      return await this.apiCall('/campuses');
+    } catch (error) {
+      this.events.emit(CampusEventService.EVENTS.NETWORK_ERROR, {
+        error: error.message,
+        operation: 'fetch'
+      });
+      throw new Error('Error al cargar las sedes: ' + error.message);
+    }
+  }
+}
+
+// Hook para usar el Facade
+const useCampusFacade = () => {
+  const { emit } = useCampusEvents();
+  
+  const facade = useMemo(() => {
+    const validationService = new ValidationService();
+    const eventService = { emit };
+    return new CampusFacade(validationService, eventService);
+  }, [emit]);
+
+  return facade;
+};
+
+// ============================================================================
+// 4. COMPONENTE PRINCIPAL CON PATRONES INTEGRADOS
+// ============================================================================
+
+const CampusTestWithPatterns = () => {
   const [campuses, setCampuses] = useState([]);
   const [selectedCampus, setSelectedCampus] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -20,32 +422,66 @@ const CampusTest = () => {
   const [showInactive, setShowInactive] = useState(false);
   
   const { toasts, showSuccess, showError, removeToast } = useToast();
+  const { subscribe, EVENTS } = useCampusEvents();
+  const facade = useCampusFacade();
 
+  // Configurar listeners del Observer Pattern
+  useEffect(() => {
+    const unsubscribers = [
+      subscribe(EVENTS.CAMPUS_CREATED, ({ campus, message }) => {
+        setCampuses(prev => [...prev, campus]);
+        setShowCreateModal(false);
+        showSuccess(message);
+      }),
+
+      subscribe(EVENTS.CAMPUS_UPDATED, ({ campus, message }) => {
+        setCampuses(prev => prev.map(c => c.id === campus.id ? campus : c));
+        setSelectedCampus(campus);
+        showSuccess(message);
+      }),
+
+      subscribe(EVENTS.CAMPUS_STATUS_CHANGED, ({ campus, message }) => {
+        setCampuses(prev => prev.map(c => c.id === campus.id ? campus : c));
+        if (selectedCampus?.id === campus.id) {
+          setSelectedCampus(campus);
+        }
+        showSuccess(message);
+      }),
+
+      subscribe(EVENTS.VALIDATION_ERROR, ({ errors }) => {
+        const errorMessage = Object.values(errors)[0] || 'Error de validación';
+        showError(errorMessage);
+      }),
+
+      subscribe(EVENTS.NETWORK_ERROR, ({ error }) => {
+        showError(error);
+      })
+    ];
+
+    return () => unsubscribers.forEach(unsub => unsub());
+  }, [subscribe, EVENTS, showSuccess, showError, selectedCampus]);
+
+  // Cargar sedes usando Facade
   const loadCampuses = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:8080/api/campuses');
-      if (!response.ok) {
-        throw new Error(errorMessages.campus.connectionError);
-      }
-      const data = await response.json();
+      const data = await facade.getAllCampuses();
       setCampuses(data);
       console.log('✅ Sedes cargadas:', data);
     } catch (err) {
       setError(err.message);
-      showError(err.message || errorMessages.campus.loadError, 5000);
       console.error('❌ Error:', err);
     } finally {
       setLoading(false);
     }
-  }, [showError]);
+  }, [facade]);
 
   useEffect(() => {
     loadCampuses();
   }, [loadCampuses]);
 
-  // Navegación
+  // Navegación (mantener compatibilidad)
   useEffect(() => {
     const handleNavigateToHome = () => {
       setCurrentView('campus');
@@ -90,93 +526,36 @@ const CampusTest = () => {
     setViewMode('detail');
   }, []);
 
-  // Función handleSave corregida en CampusTest.jsx
-// Función handleSave simplificada en CampusTest.jsx
-const handleSave = useCallback(async (campusId, formData) => {
-  try {
-    // Validaciones adicionales del lado del cliente
-    if (!formData.name?.trim()) {
-      showError(errorMessages.campus.nameRequired, 4000);
-      throw new Error(errorMessages.campus.nameRequired);
-    }
-
-    if (!formData.address?.trim()) {
-      showError(errorMessages.campus.addressRequired, 4000);
-      throw new Error(errorMessages.campus.addressRequired);
-    }
-
-    // Verificar duplicados del lado del cliente
-    const isDuplicate = campuses.some(campus => 
-      campus.name.toLowerCase() === formData.name.trim().toLowerCase() && 
-      campus.id !== campusId
-    );
-
-    if (isDuplicate) {
-      showError(errorMessages.campus.nameDuplicate, 4000);
-      throw new Error(errorMessages.campus.nameDuplicate);
-    }
-
-    // Limpiar y preparar datos - Solo campos básicos
-    const cleanFormData = {
-      name: formData.name.trim(),
-      address: formData.address.trim(),
-      city: formData.city?.trim() || '',
-      telephone: formData.telephone?.replace(/\D/g, '') || null,
-      active: formData.active
-    };
-
-    console.log('Enviando datos de actualización:', cleanFormData);
-
-    const response = await fetch(`http://localhost:8080/api/campuses/${campusId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(cleanFormData),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      
-      // Manejar errores específicos del servidor
-      if (response.status === 409 || errorData.includes('duplicate') || errorData.includes('duplicado')) {
-        throw new Error(errorMessages.campus.nameDuplicate);
+  // Operaciones CRUD simplificadas usando Facade y Patterns
+  const handleCreateCampus = useCallback(async (formData) => {
+    setCreateLoading(true);
+    try {
+      await facade.createCampus(formData, campuses);
+    } catch (error) {
+      // Los errores ya son manejados por el Observer Pattern
+      if (error instanceof ValidationError) {
+        console.log('Error de validación:', error.errors);
+      } else {
+        console.error('Error en creación:', error);
       }
-      
-      throw new Error(errorMessages.campus.updateError);
+      throw error; // Re-throw para que el modal lo maneje
+    } finally {
+      setCreateLoading(false);
     }
+  }, [facade, campuses]);
 
-    const updatedCampus = await response.json();
-    console.log('Sede actualizada exitosamente:', updatedCampus);
-    
-    // Actualizar tanto selectedCampus como la lista de campuses
-    setSelectedCampus(updatedCampus);
-    
-    // Actualizar la lista de campuses para reflejar los cambios
-    setCampuses(prev => 
-      prev.map(campus => 
-        campus.id === campusId ? updatedCampus : campus
-      )
-    );
-    
-    showSuccess(errorMessages.campus.updateSuccess, 3000);
-    
-    // Retornar los datos actualizados
-    return updatedCampus;
-    
-  } catch (err) {
-    console.error('Error en handleSave:', err);
-    
-    // Si el error ya fue mostrado arriba, no mostrar duplicado
-    if (!err.message.includes(errorMessages.campus.nameRequired) &&
-        !err.message.includes(errorMessages.campus.addressRequired) &&
-        !err.message.includes(errorMessages.campus.nameDuplicate)) {
-      showError(err.message || errorMessages.campus.updateError, 4000);
+  const handleSave = useCallback(async (campusId, formData) => {
+    try {
+      return await facade.updateCampus(campusId, formData, campuses);
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        console.log('Error de validación:', error.errors);
+      } else {
+        console.error('Error en actualización:', error);
+      }
+      throw error;
     }
-    
-    throw err;
-  }
-}, [campuses, showSuccess, showError]);
+  }, [facade, campuses]);
 
   const handleToggleStatus = useCallback(async (campus) => {
     const action = campus.active ? 'inhabilitar' : 'habilitar';
@@ -186,94 +565,12 @@ const handleSave = useCallback(async (campusId, formData) => {
 
     if (window.confirm(confirmMessage)) {
       try {
-        const updatedCampus = { ...campus, active: !campus.active };
-        
-        const response = await fetch(`http://localhost:8080/api/campuses/${campus.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(updatedCampus),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Error al ${action} la sede`);
-        }
-
-        await loadCampuses();
-        
-        if (selectedCampus?.id === campus.id) {
-          setSelectedCampus(updatedCampus);
-        }
-        
-        const successMessage = campus.active 
-          ? errorMessages.campus.disableSuccess
-          : errorMessages.campus.enableSuccess;
-        
-        showSuccess(successMessage, 3000);
-      } catch (err) {
-        showError(`Error al ${action} la sede: ` + err.message, 4000);
+        await facade.toggleCampusStatus(campus);
+      } catch (error) {
+        showError(`Error al ${action} la sede: ` + error.message);
       }
     }
-  }, [selectedCampus, loadCampuses, showSuccess, showError]);
-
-  const handleCreateCampus = useCallback(async (formData) => {
-    setCreateLoading(true);
-    
-    try {
-      // Validaciones del lado del cliente
-      if (!formData.name?.trim()) {
-        throw new Error(errorMessages.campus.nameRequired);
-      }
-
-      if (!formData.address?.trim()) {
-        throw new Error(errorMessages.campus.addressRequired);
-      }
-
-      // Verificar duplicados del lado del cliente
-      const isDuplicate = campuses.some(campus => 
-        campus.name.toLowerCase() === formData.name.trim().toLowerCase()
-      );
-
-      if (isDuplicate) {
-        throw new Error(errorMessages.campus.nameDuplicate);
-      }
-
-      console.log('Creando nueva sede:', formData);
-
-      const response = await fetch('http://localhost:8080/api/campuses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        
-        // Manejar errores específicos del servidor
-        if (response.status === 409 || errorData.includes('duplicate') || errorData.includes('duplicado')) {
-          throw new Error(errorMessages.campus.nameDuplicate);
-        }
-        
-        throw new Error(errorMessages.campus.createError);
-      }
-
-      const newCampus = await response.json();
-      console.log('Nueva sede creada:', newCampus);
-
-      await loadCampuses();
-      setShowCreateModal(false);
-      showSuccess(errorMessages.campus.createSuccess, 4000);
-    } catch (err) {
-      console.error('Error al crear sede:', err);
-      showError(err.message || errorMessages.campus.createError, 4000);
-      throw err; // Relanzar para que el modal maneje el error
-    } finally {
-      setCreateLoading(false);
-    }
-  }, [campuses, loadCampuses, showSuccess, showError]);
+  }, [facade, showError]);
 
   const filteredCampuses = campuses.filter(campus => {
     const matchesSearch = campus.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -284,7 +581,7 @@ const handleSave = useCallback(async (campusId, formData) => {
     return matchesSearch && matchesStatus;
   });
 
-  // Header unificado
+  // Header unificado (mantener el diseño existente)
   const UnifiedHeader = () => (
     <header style={{
       background: 'linear-gradient(135deg, #3730a3 0%, #4c1d95 100%)',
@@ -574,7 +871,7 @@ const handleSave = useCallback(async (campusId, formData) => {
             filteredCampuses={filteredCampuses}
             onCampusSelect={handleCampusSelect}
             UnifiedHeader={UnifiedHeader}
-            campusList={campuses} // Pasar lista completa para validaciones
+            campusList={campuses}
           />
         )
       ) : (
@@ -586,7 +883,7 @@ const handleSave = useCallback(async (campusId, formData) => {
         onClose={() => setShowCreateModal(false)}
         onSubmit={handleCreateCampus}
         isLoading={createLoading}
-        campusList={campuses} // Pasar lista para validaciones
+        campusList={campuses}
       />
       
       <div className="toast-container-wrapper">
@@ -604,5 +901,15 @@ const handleSave = useCallback(async (campusId, formData) => {
     </div>
   );
 };
+
+// ============================================================================
+// 5. WRAPPER CON PROVIDER PARA USAR LOS PATRONES
+// ============================================================================
+
+const CampusTest = () => (
+  <CampusEventProvider>
+    <CampusTestWithPatterns />
+  </CampusEventProvider>
+);
 
 export default CampusTest;

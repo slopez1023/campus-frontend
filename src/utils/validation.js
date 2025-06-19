@@ -1,11 +1,11 @@
-
+// src/utils/validations.js - VERSIÓN CORREGIDA SONARQUBE
 export const validationUtils = {
   // Validar formato de dirección (sin caracteres especiales problemáticos)
   isValidAddress: (address) => {
-    if (!address || !address.trim()) return false;
+    if (!address?.trim()) return false;
     
     // Permitir letras, números, espacios, puntos, comas, guiones, y algunos caracteres específicos
-    const validAddressRegex = /^[a-zA-ZñÑáéíóúÁÉÍÓÚ0-9\s\.\,\-\#°]+$/;
+    const validAddressRegex = /^[a-zA-ZñÑáéíóúÁÉÍÓÚ0-9\s.,\-#°]+$/;
     
     // Caracteres problemáticos que no se permiten
     const problematicChars = /[&%$@!~`^*+={}[\]|\\:;"'<>?]/;
@@ -19,7 +19,7 @@ export const validationUtils = {
 
   // Validar nombre de sede
   isValidCampusName: (name) => {
-    if (!name || !name.trim()) return false;
+    if (!name?.trim()) return false;
     
     const trimmedName = name.trim();
     
@@ -27,13 +27,13 @@ export const validationUtils = {
     if (trimmedName.length < 3 || trimmedName.length > 100) return false;
     
     // Solo letras, números, espacios y algunos caracteres básicos
-    const validNameRegex = /^[a-zA-ZñÑáéíóúÁÉÍÓÚ0-9\s\.\-]+$/;
+    const validNameRegex = /^[a-zA-ZñÑáéíóúÁÉÍÓÚ0-9\s.-]+$/;
     return validNameRegex.test(trimmedName);
   },
 
   // Verificar si un nombre está duplicado
   isDuplicateName: (name, campusList, excludeId = null) => {
-    if (!name || !name.trim()) return false;
+    if (!name?.trim()) return false;
     
     const trimmedName = name.trim().toLowerCase();
     return campusList.some(campus => 
@@ -60,14 +60,13 @@ export const validationUtils = {
 
   // Validar ciudad
   isValidCity: (city) => {
-    if (!city || !city.trim()) return false;
+    if (!city?.trim()) return false;
     
     const trimmedCity = city.trim();
     if (trimmedCity.length < 2 || trimmedCity.length > 50) return false;
     
     // Solo letras, espacios y algunos caracteres básicos
-    const validCityRegex = /^[a-zA-ZñÑáéíóúÁÉÍÓÚ\s\.\-]+$/;
+    const validCityRegex = /^[a-zA-ZñÑáéíóúÁÉÍÓÚ\s.-]+$/;
     return validCityRegex.test(trimmedCity);
   }
 };
-
